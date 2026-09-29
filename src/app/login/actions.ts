@@ -11,7 +11,7 @@ export type LoginState = { error: string | null };
 
 const WRONG = "비밀번호가 맞지 않습니다.";
 
-/** 로그인 (기획서 3.1-8). 같은 IP에서 5회 연속 실패하면 15분 잠금 */
+/** Log in (spec 3.1-8). 5 consecutive failures from the same IP triggers a 15-minute lockout */
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const pin = String(formData.get("pin") ?? "").trim();
   const next = safeNextPath(formData.get("next"));
@@ -29,7 +29,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
       return { error: "비밀번호가 아직 설정되지 않았습니다. 관리자에게 문의하세요." };
     }
 
-    // 형식이 틀린 입력도 실패 1회로 센다
+    // A malformed input also counts as one failure
     const role = isValidPin(pin) ? await matchRole(pin, hashes) : null;
     if (!role) {
       const { data: lockedUntil, error } = await supabase.rpc("register_login_failure", {
@@ -46,11 +46,11 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   } catch (e) {
     return { error: e instanceof Error ? e.message : "알 수 없는 오류" };
   }
-  // redirect 는 예외로 동작하므로 try 밖에서
+  // redirect works by throwing, so call it outside the try block
   redirect(next);
 }
 
-/** 로그아웃: 현재 세션 삭제 후 로그인 화면으로 */
+/** Log out: delete the current session, then redirect to the login screen */
 export async function logout(): Promise<void> {
   await destroyCurrentSession();
   redirect("/login");

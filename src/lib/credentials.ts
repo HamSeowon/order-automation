@@ -3,7 +3,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import type { AppRole } from "@/lib/database.types";
 import { hashPassword, isValidPin, verifyPassword } from "@/lib/password";
 
-// 직원 공용 / 관리자 비밀번호 (기획서 4.5). 해시 비교와 변경은 모두 여기서.
+// Shared staff / admin password (spec 4.5). Hash comparison and changes all happen here.
 
 type Hashes = Partial<Record<AppRole, string>>;
 
@@ -14,8 +14,8 @@ export async function loadCredentialHashes(): Promise<Hashes> {
 }
 
 /**
- * 입력한 비밀번호가 어느 쪽인지. 관리자 비밀번호가 우선.
- * 어느 쪽이 맞았는지 응답 시간으로 드러나지 않게 설정된 해시는 항상 둘 다 비교한다.
+ * Which role the entered password belongs to. The admin password takes priority.
+ * Both configured hashes are always compared, so response time doesn't reveal which one matched.
  */
 export async function matchRole(pin: string, hashes: Hashes): Promise<AppRole | null> {
   const [admin, member] = await Promise.all([
@@ -29,8 +29,8 @@ const OTHER: Record<AppRole, AppRole> = { member: "admin", admin: "member" };
 const LABEL: Record<AppRole, string> = { member: "직원 공용 비밀번호", admin: "관리자 비밀번호" };
 
 /**
- * 비밀번호 변경. 성공하면 그 종류의 기존 로그인을 모두 끊는다 (keepSessionId 는 유지 — 관리자 본인).
- * 공용과 관리자 비밀번호가 같으면 직원이 관리자로 로그인되므로 거부한다.
+ * Change a password. On success, all existing logins of that kind are ended (keepSessionId is kept — the admin's own session).
+ * Rejected if the shared and admin passwords would end up equal, since that would let staff log in as admin.
  */
 export async function setCredential(
   role: AppRole,

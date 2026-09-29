@@ -6,13 +6,13 @@ import { authorize, getSession } from "@/lib/auth";
 import { loadCredentialHashes, setCredential } from "@/lib/credentials";
 import { verifyPassword } from "@/lib/password";
 
-// 관리 화면 (기획서 3.1-8, 7장 5). 모든 함수는 관리자 세션만 허용.
+// Admin screen (spec 3.1-8, Section 7 item 5). Every function here requires an admin session.
 
 export type AdminResult = { ok: true; message: string } | { ok: false; error: string };
 
 const fail = (e: unknown): AdminResult => ({ ok: false, error: e instanceof Error ? e.message : "알 수 없는 오류" });
 
-/** 직원 공용 비밀번호 변경 → 직원 전원 로그아웃 */
+/** Change the shared staff password → logs out every staff member */
 export async function changeMemberPin(pin: unknown, confirm: unknown): Promise<AdminResult> {
   const denied = await authorize("admin");
   if (denied) return { ok: false, error: denied };
@@ -27,7 +27,7 @@ export async function changeMemberPin(pin: unknown, confirm: unknown): Promise<A
   }
 }
 
-/** 관리자 비밀번호 변경 (현재 관리자 비밀번호 확인). 지금 쓰는 관리자 로그인은 유지, 다른 관리자 로그인은 끊음 */
+/** Change the admin password (verifies the current admin password). Keeps the caller's own admin login, ends other admin logins */
 export async function changeAdminPin(current: unknown, pin: unknown, confirm: unknown): Promise<AdminResult> {
   const denied = await authorize("admin");
   if (denied) return { ok: false, error: denied };
@@ -46,7 +46,7 @@ export async function changeAdminPin(current: unknown, pin: unknown, confirm: un
   }
 }
 
-/** 비밀번호는 그대로 두고 직원 로그인만 전부 끊기 */
+/** Keep the password as-is, just end every staff login */
 export async function logoutAllMembers(): Promise<AdminResult> {
   const denied = await authorize("admin");
   if (denied) return { ok: false, error: denied };
@@ -60,7 +60,7 @@ export async function logoutAllMembers(): Promise<AdminResult> {
   }
 }
 
-/** 로그인 잠금/실패 기록 지우기 */
+/** Clear a login lockout/failure record */
 export async function unlockLogin(key: unknown): Promise<AdminResult> {
   const denied = await authorize("admin");
   if (denied) return { ok: false, error: denied };

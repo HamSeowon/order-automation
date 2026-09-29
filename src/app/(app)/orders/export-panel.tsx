@@ -8,15 +8,15 @@ import { setCurrentUserName, useCurrentUserName } from "@/lib/current-user";
 type Done = { id: string; fileName: string; orderCount: number };
 
 /**
- * "엑셀 송장 내보내기" — 아직 내보내지 않은 주문 전체를 로젠 양식 .xlsx 로 받는다 (목록 필터와 무관).
- * 파일 이름 기본값은 오늘 날짜(같은 날 두 번째부터 _N), 받기 전에 바꿀 수 있다.
+ * "Export Excel shipping labels" — downloads every not-yet-exported order as a Logen-template .xlsx (independent of the list's filters).
+ * The default file name is today's date (with _N from the second export of the same day), and it can be changed before downloading.
  */
 export default function ExportPanel({
   pendingCount, defaultFileName, unavailable,
 }: {
   pendingCount: number;
   defaultFileName: string;
-  /** 마이그레이션 미적용 등으로 내보내기를 쓸 수 없을 때 이유 */
+  /** Reason export is unavailable, e.g. a migration hasn't been applied */
   unavailable: string | null;
 }) {
   const exportedBy = useCurrentUserName();
@@ -44,14 +44,14 @@ export default function ExportPanel({
   const submit = async () => {
     setPending(true);
     setError(null);
-    // 기본 이름을 그대로 두면 null → DB가 실제 번호로 이름을 붙인다 (그 사이 다른 사람이 내보냈어도 _N 이 맞게)
+    // Leaving the default name as-is sends null → the DB attaches the real numbered name (so _N stays correct even if someone else exported in the meantime)
     const name = fileName.trim() === defaultFileName ? null : fileName;
     const res = await createInvoiceExport(name, exportedBy);
     setPending(false);
     if (!res.ok) return setError(res.error);
     setOpen(false);
     setDone(res);
-    // 다운로드 시작 (실패해도 아래 '다시 받기' 링크나 내보내기 기록에서 받을 수 있음)
+    // Start the download (even if this fails, it can still be retrieved via the "download again" link below or the export history)
     const a = document.createElement("a");
     a.href = `/exports/${res.id}/download`;
     a.download = res.fileName;

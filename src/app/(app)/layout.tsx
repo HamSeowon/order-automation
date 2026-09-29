@@ -2,9 +2,9 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 
-// 로그인 후 화면 공통 틀 (메뉴 + 로그아웃).
-// 주의: layout 은 화면 이동 때 다시 실행되지 않으므로 여기서의 확인만으로는 막을 수 없다.
-// 각 page 가 requirePageSession() 을, 각 Server Action 이 authorize() 를 따로 호출한다.
+// Shared shell for post-login screens (menu + logout).
+// Note: layout does not re-run on client-side navigation, so a check here alone cannot protect anything.
+// Each page must call requirePageSession(), and each Server Action must call authorize(), separately.
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const session = await getSession();
 

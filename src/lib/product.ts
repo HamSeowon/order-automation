@@ -1,5 +1,5 @@
-// 상품 원문 → 브랜드/상품명/색상/사이즈 "제안값" 추출.
-// 기획서 5장: 딕셔너리는 자동 확정하지 않고 카드에 pre-fill만 한다. 최종 확정은 사람이 한다.
+// Product raw text → extract "suggested" brand/product name/color/size.
+// Spec Section 5: the dictionary never auto-confirms, it only pre-fills the card. A person makes the final call.
 
 import type { ProductItem } from "./parser";
 
@@ -8,12 +8,12 @@ export type DictEntry = { full_name: string; short_form: string };
 export type ProductSuggestion = {
   brand_raw: string;
   brand_short: string;
-  /** 딕셔너리에서 브랜드를 찾았는지 (false면 카드에 "미매칭" 표시) */
+  /** Whether the brand was found in the dictionary (false shows "unmatched" on the card) */
   brandMatched: boolean;
   product_name: string;
   color: string;
   size: string;
-  /** 수량이 2개 이상일 때만 채움. 운영 결정: 수량만큼 카드를 복제하지 않고 참고사항에만 기록 */
+  /** Only filled in when quantity is 2 or more. Product decision: record it as a note instead of duplicating cards per quantity */
   quantityNote: string;
 };
 
@@ -23,14 +23,14 @@ const COLORS = [
   "오렌지", "실버", "골드", "검정", "흰색", "남색", "회색", "빨강", "파랑", "노랑", "초록", "소라",
   "연청", "진청", "중청",
 ];
-// 긴 이름부터 매칭 (스카이블루가 블루보다 먼저)
+// Match longer names first (skyblue before blue)
 const COLORS_BY_LENGTH = [...COLORS].sort((a, b) => b.length - a.length);
 
 const SEP = "[\\s,/·()]";
 const SIZE_RE = new RegExp(`(?:^|${SEP})(XXXL|XXL|XL|L|M|S|XS|FREE|F|프리|\\d{2,3})(?=$|${SEP}|\\s*사이즈)`, "i");
 // "2개", "2장", "2벌", "2ea", "x2", "×2", "*2"
 const QTY_RE = /(\d+)\s*(?:개|장|벌|ea)|(?:^|\s)[x×*]\s*(\d+)(?=$|\s)/i;
-// 옵션 줄 끝의 사이즈 (색상에 붙어 있어도 됨: "화이트77", "블랙L", "네이비 FREE")
+// Trailing size at the end of an option line (may be glued to the color: "화이트77", "블랙L", "네이비 FREE")
 const TRAILING_SIZE_RE = /(?<![A-Za-z0-9])(XXXL|XXL|XL|XS|S|M|L|FREE|F|프리|\d{2,3})\s*(?:사이즈)?\s*$/i;
 
 function takeQuantity(text: string): { rest: string; quantityNote: string } {
@@ -53,7 +53,7 @@ export function findBrand(text: string, dict: DictEntry[]): DictEntry | null {
   for (const entry of dict) {
     const name = entry.full_name.trim().toLowerCase();
     if (!name) continue;
-    // 영문 브랜드는 단어 경계로 매칭 (PXG가 "APXGO" 안에서 잡히지 않게)
+    // Match Latin brand names on word boundaries (so "PXG" doesn't match inside "APXGO")
     const re = /^[a-z0-9]+$/.test(name)
       ? new RegExp(`(^|[^a-z0-9])${escapeRe(name)}($|[^a-z0-9])`)
       : null;
@@ -63,7 +63,7 @@ export function findBrand(text: string, dict: DictEntry[]): DictEntry | null {
   return best;
 }
 
-/** 딕셔너리로 브랜드 약칭을 찾는다 (정확히 일치하는 full_name 또는 이미 약칭인 경우) */
+/** Look up the brand's short form in the dictionary (exact full_name match, or the input is already a short form) */
 export function lookupShortForm(brandRaw: string, dict: DictEntry[]): string | null {
   const key = brandRaw.trim().toLowerCase();
   if (!key) return null;
@@ -72,7 +72,7 @@ export function lookupShortForm(brandRaw: string, dict: DictEntry[]): string | n
   return hit ? hit.short_form : null;
 }
 
-/** 브랜드 원문에 대한 약칭 제안: 정확히 일치하는 이름/약칭 우선, 없으면 원문 안에 포함된 브랜드 */
+/** Suggest a short form for the raw brand text: prefer an exact name/short-form match, otherwise a brand contained within the raw text */
 export function suggestShortForm(brandRaw: string, dict: DictEntry[]): string | null {
   return lookupShortForm(brandRaw, dict) ?? findBrand(brandRaw, dict)?.short_form ?? null;
 }
@@ -126,7 +126,7 @@ export function suggestProductFields(productText: string, dict: DictEntry[]): Pr
   };
 }
 
-/** 옵션 줄(색상+사이즈[+수량]) 해석. 사이즈·수량을 뺀 나머지는 모두 색상으로 본다 (예: "화이트77" → 화이트 / 77) */
+/** Parse an option line (color+size[+quantity]). Whatever is left after removing size/quantity is treated as color (e.g. "화이트77" → 화이트 / 77) */
 export function parseOption(option: string): { color: string; size: string; quantityNote: string } {
   const { rest: withoutQty, quantityNote } = takeQuantity(option);
   let rest = withoutQty.trim();
@@ -141,11 +141,11 @@ export function parseOption(option: string): { color: string; size: string; quan
   return { color, size, quantityNote };
 }
 
-/** splitProducts 결과(상품 1개) → 카드 제안값 */
+/** splitProducts result (one product) → suggested card values */
 export function suggestItemFields(item: ProductItem, dict: DictEntry[]): ProductSuggestion {
   if (item.kind === "free") return suggestProductFields(item.text, dict);
   const brandLine = item.brand.trim();
-  // 브랜드 줄 전체가 딕셔너리 키일 수도, 일부만 브랜드일 수도 있음 (예: "지포어 [ G / F ] 매장판")
+  // The whole brand line may be the dictionary key, or only part of it may be the brand (e.g. "지포어 [ G / F ] 매장판")
   const hit = suggestShortForm(brandLine, dict);
   return {
     brand_raw: brandLine,

@@ -5,16 +5,16 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { authorize } from "@/lib/auth";
 import { sanitizeExportFileName } from "@/lib/invoice";
 
-// Server Action 은 직접 POST 로도 호출할 수 있으므로 모든 함수가 먼저 authorize() 로 로그인을 확인한다.
+// Server Actions can also be called directly via POST, so every function checks login with authorize() first.
 
 export type CreateExportResult =
   | { ok: true; id: string; fileName: string; orderCount: number }
   | { ok: false; error: string };
 
 /**
- * 아직 내보내지 않은 주문 전부를 새 내보내기로 선점한다 (DB 함수 create_invoice_export).
- * 파일은 반환된 id 로 /exports/[id]/download 에서 받는다 (다시 받기도 같은 경로).
- * fileName 이 null 이면 DB가 기본 이름(YYYY-MM-DD.xlsx / _N)을 붙인다 — 그 사이 다른 사람이 내보내도 번호가 맞게.
+ * Claim every not-yet-exported order into a new export (DB function create_invoice_export).
+ * The file is then downloaded from /exports/[id]/download using the returned id (re-downloads use the same route).
+ * If fileName is null, the DB attaches a default name (YYYY-MM-DD.xlsx / _N) — so the numbering stays correct even if someone else exports in between.
  */
 export async function createInvoiceExport(fileName: unknown, exportedBy: unknown): Promise<CreateExportResult> {
   const denied = await authorize();

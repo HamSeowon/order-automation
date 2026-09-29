@@ -1,23 +1,25 @@
--- 로그인 (기획서 3.1-8, 4.5~4.7) — 테이블만 먼저 준비. 앱 코드는 9장 7단계에서 구현.
+-- Login (spec 3.1-8, 4.5–4.7) — tables only for now. App code is implemented in Section 9 step 7.
 --
--- 2026-09-27 결정: 사람별 계정 없음. 직원 전원이 공용 비밀번호(숫자 6자리) 하나로 로그인하고,
--- 관리자(1명)는 별도 관리자 비밀번호로 로그인해 공용 비밀번호 변경·전원 로그아웃을 한다.
--- 입력자(orders.created_by)는 지금처럼 주문 입력 화면에서 직접 적는다 (기존 기록도 그대로).
+-- Decided 2026-09-27: no per-person accounts. Every staff member logs in with one shared
+-- password (6 digits); the admin (1 person) logs in with a separate admin password to change the
+-- shared password and log everyone out.
+-- The "entered by" field (orders.created_by) is still typed directly on the order-entry screen, as before
+-- (existing records are unaffected).
 --
--- - 비밀번호는 앱(Node crypto.scrypt)에서 해시해서 password_hash 에만 저장. 평문은 어디에도 저장하지 않는다.
--- - 세션은 DB에 저장 (쿠키에는 무작위 토큰, DB에는 그 SHA-256 해시만) → 공용 비밀번호를 바꾸면 직원 세션을 즉시 끊을 수 있음.
--- - 로그인 실패 잠금은 이름이 없으므로 접속 IP 기준 (login_attempts.key = 'ip:<주소>').
+-- - The password is hashed by the app (Node crypto.scrypt) and only the hash is stored in password_hash. Plaintext is never stored anywhere.
+-- - Sessions are stored in the DB (a random token in the cookie, only its SHA-256 hash in the DB) → changing the shared password can immediately end staff sessions.
+-- - Login-failure lockout has no per-person identity to key on, so it's keyed by client IP (login_attempts.key = 'ip:<address>').
 
 -- ---------------------------------------------------------------------------
--- 비밀번호 (공용 1개 + 관리자 1개)
+-- Passwords (1 shared + 1 admin)
 -- ---------------------------------------------------------------------------
 create table public.app_credentials (
-  role          text primary key check (role in ('member', 'admin')),  -- member = 직원 공용, admin = 관리자
+  role          text primary key check (role in ('member', 'admin')),  -- member = shared staff, admin = administrator
   password_hash text not null,
   updated_at    timestamptz not null default now()
 );
 
-comment on table public.app_credentials is '로그인 비밀번호 해시. member(직원 공용) / admin(관리자) 각 1행. 첫 설정은 npm run set-password';
+comment on table public.app_credentials is 'Login password hashes. One row each for member (shared staff) / admin. Initial setup via npm run set-password';
 
 create trigger app_credentials_set_updated_at
   before update on public.app_credentials
@@ -26,19 +28,19 @@ create trigger app_credentials_set_updated_at
 alter table public.app_credentials enable row level security;
 
 -- ---------------------------------------------------------------------------
--- 로그인 세션 (30일)
+-- Login sessions (30 days)
 -- ---------------------------------------------------------------------------
 create table public.app_sessions (
   id           uuid primary key default gen_random_uuid(),
-  role         text not null check (role in ('member', 'admin')),  -- 어떤 비밀번호로 로그인했는지
-  token_hash   text not null unique,       -- 쿠키 토큰의 SHA-256 (hex). 원본 토큰은 저장하지 않음
+  role         text not null check (role in ('member', 'admin')),  -- Which password was used to log in
+  token_hash   text not null unique,       -- SHA-256 (hex) of the cookie token. The raw token is never stored
   created_at   timestamptz not null default now(),
-  expires_at   timestamptz not null,       -- 로그인 시각 + 30일
+  expires_at   timestamptz not null,       -- Login time + 30 days
   last_seen_at timestamptz not null default now(),
   check (expires_at > created_at)
 );
 
-comment on table public.app_sessions is '로그인 세션 (30일). 공용 비밀번호 변경 시 member 세션 전체 삭제 = 전원 로그아웃';
+comment on table public.app_sessions is 'Login sessions (30 days). Deleting all member sessions on a shared-password change logs everyone out';
 
 create index app_sessions_role_idx on public.app_sessions (role);
 create index app_sessions_expires_at_idx on public.app_sessions (expires_at);
@@ -46,22 +48,22 @@ create index app_sessions_expires_at_idx on public.app_sessions (expires_at);
 alter table public.app_sessions enable row level security;
 
 -- ---------------------------------------------------------------------------
--- 로그인 실패 잠금
+-- Login-failure lockout
 -- ---------------------------------------------------------------------------
 create table public.login_attempts (
-  key          text primary key,           -- 'ip:<주소>' (나중에 다른 기준을 더해도 스키마 변경 불필요)
+  key          text primary key,           -- 'ip:<address>' (a schema change won't be needed if another key is added later)
   failed_count int not null default 0 check (failed_count >= 0),
   locked_until timestamptz,
   updated_at   timestamptz not null default now()
 );
 
-comment on table public.login_attempts is '로그인 실패 횟수/잠금 (접속 IP 기준). 로그인 성공 시 해당 행 삭제';
+comment on table public.login_attempts is 'Login failure count / lockout (keyed by client IP). The row is deleted on a successful login';
 
 alter table public.login_attempts enable row level security;
 
--- 실패 1회 기록 (원자적). 한도에 닿으면 p_lock_minutes 동안 잠금. 반환값: 잠금 해제 시각 (잠기지 않았으면 null)
--- 횟수를 1부터 다시 세는 경우: 지난 잠금이 풀린 뒤 / 잠기지 않은 상태에서 마지막 실패 후 p_lock_minutes 가 지난 뒤
--- 이미 잠긴 동안의 실패는 잠금을 연장하지 않는다.
+-- Atomically records one failure. Locks for p_lock_minutes once the limit is reached. Returns the unlock time (null if not locked)
+-- Counting restarts from 1 when: the previous lock has expired / it wasn't locked and p_lock_minutes has passed since the last failure
+-- Failures that occur while already locked do not extend the lock.
 create or replace function public.register_login_failure(
   p_key          text,
   p_max_attempts int,

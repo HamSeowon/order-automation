@@ -1,7 +1,7 @@
-// 로그인 비밀번호 해시 (기획서 3.1-8, 4.5). 서버·스크립트 전용 — node:crypto 만 사용하고 다른 import 없음
-// (scripts/set-password.mts 에서 Node 로 직접 불러오기 때문).
+// Login password hashing (spec 3.1-8, 4.5). Server/script only — uses only node:crypto, no other imports
+// (because scripts/set-password.mts loads this directly under Node).
 //
-// 저장 형식: scrypt$N$r$p$<salt base64>$<hash base64>  — 파라미터를 함께 저장해 나중에 강도를 올려도 기존 해시 검증 가능
+// Storage format: scrypt$N$r$p$<salt base64>$<hash base64> — storing the parameters alongside lets us raise the cost later while still verifying old hashes
 
 import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from "node:crypto";
 
@@ -10,7 +10,7 @@ const R = 8;
 const P = 1;
 const KEY_LEN = 64;
 
-/** 비밀번호 규칙: 숫자 6자리 (2026-09-27 결정) */
+/** Password rule: 6 digits (decided 2026-09-27) */
 export const PIN_RE = /^\d{6}$/;
 export const isValidPin = (pin: string) => PIN_RE.test(pin);
 
@@ -26,7 +26,7 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${N}$${R}$${P}$${salt.toString("base64")}$${hash.toString("base64")}`;
 }
 
-/** 저장된 해시와 비교 (형식이 이상하면 false). 비교는 상수 시간 */
+/** Compare against a stored hash (returns false on a malformed format). Comparison runs in constant time */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 6 || parts[0] !== "scrypt") return false;

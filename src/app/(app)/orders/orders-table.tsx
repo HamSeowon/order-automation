@@ -22,7 +22,7 @@ const toDraft = (o: Order): OrderDraft =>
   Object.fromEntries(ORDER_FIELDS.map((f) => [f, o[f] ?? ""])) as OrderDraft;
 
 export default function OrdersTable({ orders }: { orders: Order[] }) {
-  // 이 페이지에 보이는 묶음별 주문 수 (묶음 표시·"묶음 전체 반영" 옵션용)
+  // Order count per group visible on this page (used for the group badge and the "apply to whole group" option)
   const groupSizes = new Map<string, number>();
   for (const o of orders) groupSizes.set(o.order_group_id, (groupSizes.get(o.order_group_id) ?? 0) + 1);
 
@@ -78,7 +78,7 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
     const res = await updateOrder(order.id, draft, order.updated_at, inGroup && applyToGroup);
     setPending(false);
     if (!res.ok) return setError({ text: res.error, conflict: !!res.conflict });
-    // 서버에서 revalidatePath 로 목록이 새로 그려지면 이 행은 새 key 로 다시 만들어진다
+    // Once the server's revalidatePath re-renders the list, this row is recreated with a new key
     setEditing(false);
   };
 

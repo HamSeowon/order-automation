@@ -1,5 +1,5 @@
-// supabase/migrations 의 스키마와 일치하는 타입.
-// 프로젝트를 link 한 뒤에는 아래 명령으로 재생성해서 덮어써도 된다:
+// Types matching the schema in supabase/migrations.
+// After linking the project, you can regenerate and overwrite this file with:
 //   npx supabase gen types typescript --linked > src/lib/database.types.ts
 
 export type Database = {

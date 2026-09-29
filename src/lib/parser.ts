@@ -1,20 +1,20 @@
-// 카톡 단톡방 주문 원문 → 주문 단위 분리 (기획서 5장).
-// 프레임워크 의존성 없는 순수 함수만 둔다 (서버/클라이언트 양쪽에서 사용).
+// KakaoTalk group-chat order raw text → split into individual orders (spec Section 5).
+// Contains only framework-independent pure functions (used on both server and client).
 
 export type ParsedOrder = {
   name: string;
   phone: string;
   addr1: string;
   addr2: string;
-  /** 상품 관련 원문 줄들 (옷제목, 컬러/사이즈/수량 등). 카드에서 브랜드/상품/색상/사이즈 제안에 사용 */
+  /** Raw product-related lines (item title, color/size/quantity, etc.). Used for brand/product/color/size suggestions on the card */
   productText: string;
-  /** 상품 줄을 빈 줄 기준으로 묶은 블록들 (splitProducts 에서 상품 개수 판단에 사용) */
+  /** Product lines grouped into blocks by blank lines (used by splitProducts to decide the product count) */
   productBlocks: string[][];
-  /** "옷제목 ;" 같은 라벨로 상품이 들어왔는지 (라벨 형식이면 블록 구조로 해석하지 않음) */
+  /** Whether the product came in via a label like "옷제목 ;" (label format is not interpreted as a block structure) */
   productLabeled: boolean;
   vendor: string;
   note: string;
-  /** 이 주문으로 분리된 원문 줄들 (카드에서 대조용으로 표시) */
+  /** Raw lines that were split into this order (shown on the card for cross-checking) */
   raw: string;
 };
 
@@ -22,13 +22,13 @@ const PHONE_RE = /01[016789][\s.\-)]*\d{3,4}[\s.\-]*\d{4}/;
 const NAME_RE = /^[가-힣]{2,5}$/;
 const ADDR_START_RE =
   /^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|충청|전북|전남|전라|경북|경남|경상|제주)/;
-// 도로명 + 건물번호 (예: 올림픽로 145, 마곡서1로 100, 중앙로123번길 45, 쌍미천로 190-1, 위례광장로 163번지)
+// Road name + building number (e.g. 백제고분로 212, 화곡로 55, 중앙로123번길 45, 반송로 88-1, 위례성대로 27번지)
 const ROAD_NUMBER_RE = /[가-힣A-Za-z0-9](?:로|길)\s*\d+(?:번길\s*\d+)?(?:-\d+)?(?:번지)?/;
-// 도로명 이후 나머지 주소로 보이는 줄 (건물명/동/호수 등)
+// Lines that look like the rest of the address after the road name (building name/unit/floor, etc.)
 const ADDR_DETAIL_RE =
   /(\d+\s*(?:동|호|층|단지|차|번지)|아파트|빌라|상가|맨션|타워|오피스텔|빌딩|하우스|주택|apt|지하|\d+-\d+)/i;
 
-// 라벨 없는 줄이 이름 패턴(한글 2~5자)과 겹치지만 이름이 아닌 단어들
+// Unlabeled words that overlap the name pattern (2–5 Hangul characters) but aren't names
 const NOT_NAME_WORDS = new Set([
   "블랙", "화이트", "네이비", "그레이", "회색", "베이지", "블루", "레드", "핑크", "그린",
   "카키", "브라운", "아이보리", "옐로우", "퍼플", "민트", "와인", "차콜", "오렌지", "실버", "골드",
@@ -47,7 +47,7 @@ const LABELS: [RegExp, Field][] = [
   [/^(참고(사항)?|메모|요청(사항)?|비고)$/, "note"],
 ];
 
-// "➡️ 성함 ; 박시연", "- 주소: ...", "▶전번 : ..." 형태
+// Matches forms like "➡️ 성함 ; 최유리", "- 주소: ...", "▶전번 : ..."
 const LABEL_LINE_RE = /^[\s➡️▶►→>\-*•·]*([가-힣A-Za-z\s/]{1,15}?)\s*[;:：]\s*(.*)$/u;
 
 function matchLabel(line: string): { field: Field; value: string } | null {
@@ -67,7 +67,7 @@ export function normalizePhone(input: string): string {
   return input.trim();
 }
 
-/** 주소를 "시/구/도로명+번호"(addr1)와 나머지(addr2)로 분리. 도로명을 못 찾으면 전부 addr1 */
+/** Split an address into "city/district/road-name+number" (addr1) and the rest (addr2). If no road name is found, everything goes into addr1 */
 export function splitAddress(addr: string): { addr1: string; addr2: string } {
   const text = addr.replace(/\s+/g, " ").trim();
   const m = ROAD_NUMBER_RE.exec(text);
@@ -98,7 +98,7 @@ const isComplete = (d: Draft) => !!d.phone && d.addrLines.length > 0;
 
 function looksLikeAddressContinuation(line: string, d: Draft): boolean {
   if (d.addrLines.length === 0) return false;
-  // 아직 도로명+번호가 안 나왔으면 다음 줄은 주소의 이어지는 부분 (예: "서울시 송파구" / "올림픽로 145 ...")
+  // If the road name + number hasn't appeared yet, the next line is a continuation of the address (e.g. "서울시 송파구" / "백제고분로 212 ...")
   if (!ROAD_NUMBER_RE.test(d.addrLines.join(" "))) return true;
   return ROAD_NUMBER_RE.test(line) || ADDR_DETAIL_RE.test(line);
 }
@@ -121,17 +121,17 @@ function toParsed(d: Draft): ParsedOrder {
 
 
 /**
- * 원문 텍스트를 주문 단위로 분리한다.
- * 줄 단위 상태 기계: 라벨 우선 → 라벨 없으면 전화번호/이름/주소 패턴 판별.
- * 전화번호 + 주소를 모두 확보한 주문은 "완료"로 보고, 그 뒤 주소의 연속이 아닌 줄이 오면 새 주문을 시작한다.
- * 상품 줄은 빈 줄 기준으로 블록을 나눠 둔다 (한 메시지 여러 상품 → splitProducts).
+ * Split raw text into individual orders.
+ * A line-by-line state machine: labels take priority, otherwise fall back to detecting a phone number/name/address-start pattern.
+ * An order is considered "complete" once it has both a phone number and an address; a subsequent line that isn't a continuation of the address then starts a new order.
+ * Product lines are grouped into blocks separated by blank lines (one message, multiple products → splitProducts).
  */
 export function segmentOrders(text: string): ParsedOrder[] {
   const orders: ParsedOrder[] = [];
   let d = emptyDraft();
-  // 값이 비어 있는 라벨 뒤 줄들을 해당 필드로 모으기 위한 상태 (예: "컬러/사이즈/수량 ;" 다음 줄 "블랙 1개")
+  // Tracks which field should collect the lines following a label with no inline value (e.g. the line after "컬러/사이즈/수량 ;" is "블랙 1개")
   let pending: Field | null = null;
-  // 직전 줄이 (빈 줄 없이 바로 위에 있는) 상품 줄이었는지 → 같은 상품 블록으로 이어 붙일지 판단
+  // Whether the previous line (immediately above, no blank line in between) was a product line → decides whether to append to the same product block
   let prevWasProduct = false;
 
   const flush = () => {
@@ -159,7 +159,7 @@ export function segmentOrders(text: string): ParsedOrder[] {
     }
   };
 
-  // 새 값이 들어올 때 현재 주문을 마감해야 하는지 (같은 필드가 이미 차 있거나, 이미 완료된 주문에 새 상품이 오는 경우)
+  // Whether the current order must be closed out before accepting a new value (the same field is already filled, or a new product arrives on an already-complete order)
   const startsNewOrder = (field: Field): boolean => {
     if (field === "name") return !!d.name;
     if (field === "phone") return !!d.phone;
@@ -181,10 +181,10 @@ export function segmentOrders(text: string): ParsedOrder[] {
       continue;
     }
     const continuesProduct = prevWasProduct;
-    // 빈 줄 없이 바로 다음 줄이 연락처가 아닌 줄이면, 이 줄은 상품 블록의 첫 줄 (예: 한글 브랜드 "지포어" 다음 줄 "니트")
+    // If the very next line (no blank line in between) is not a contact-info line, this line is the first line of a product block (e.g. Hangul brand "지포어" followed by "니트")
     const next = lines[i + 1] ?? "";
     const startsProductBlock = !!next && !PHONE_RE.test(next) && !ADDR_START_RE.test(next) && !matchLabel(next);
-    // 이 줄이 상품 줄로 처리되는 경우에만 아래에서 true 로 되돌린다
+    // Only flipped back to true below when this line is actually treated as a product line
     let isProduct = false;
 
     const label = matchLabel(line);
@@ -193,12 +193,12 @@ export function segmentOrders(text: string): ParsedOrder[] {
       put(label.field, label.value, line);
       pending = label.value ? null : label.field;
     } else if (pending === "addr") {
-      // "➡️ 주소 ;" 처럼 값 없는 주소 라벨 다음 줄
+      // The line after an address label with no inline value, e.g. "➡️ 주소 ;"
       d.addrLines.push(line);
       d.rawLines.push(line);
       pending = null;
     } else if (PHONE_RE.test(line)) {
-      // 전화번호 (같은 줄에 이름이 붙어 있는 경우: "심춘선 01087698178")
+      // A phone number (with the name attached on the same line, e.g. "최유리 01024567890")
       const phone = line.match(PHONE_RE)![0];
       const rest = line.replace(phone, " ").replace(/[,/]/g, " ").trim();
       if (d.phone) flush();
@@ -219,7 +219,7 @@ export function segmentOrders(text: string): ParsedOrder[] {
       NAME_RE.test(line) &&
       !NOT_NAME_WORDS.has(line) &&
       pending !== "product" &&
-      // 상품 블록 한가운데(빈 줄 없이 이어지는 줄)의 짧은 한글은 이름이 아니라 상품명/옵션 (예: "가디건")
+      // A short Hangul word in the middle of a product block (lines continuing with no blank line) is not a name but a product name/option (e.g. "가디건")
       !(continuesProduct && !d.phone && d.addrLines.length === 0) &&
       !startsProductBlock
     ) {
@@ -230,7 +230,7 @@ export function segmentOrders(text: string): ParsedOrder[] {
       d.rawLines.push(line);
       isProduct = pending === "product";
     } else {
-      // 그 외 줄은 상품 정보로 취급
+      // Treat any other line as product information
       put("product", line, line);
       isProduct = true;
     }
@@ -241,20 +241,20 @@ export function segmentOrders(text: string): ParsedOrder[] {
 }
 
 /**
- * 한 메시지 안의 상품 하나. 블록 형식("브랜드 줄 / 상품명 줄 / 옵션 줄")이면 structured,
- * 그 외(라벨 형식, 한 줄짜리 등)는 원문 그대로 free.
+ * One product within a single message. Block format ("brand line / product-name line / option line") is structured,
+ * anything else (label format, one-liners, etc.) is kept as free raw text.
  */
 export type ProductItem =
   | { kind: "structured"; brand: string; product: string; option: string }
   | { kind: "free"; text: string };
 
 /**
- * 주문 하나에 들어 있는 상품들을 나눈다 (상품 수만큼 카드를 만들기 위해 사용).
- * - 라벨 형식("➡️ 옷제목 ;")이거나 블록이 한 줄짜리들뿐이면 → 기존처럼 전체가 상품 1개
- * - 빈 줄로 구분된 블록이 2개 이상이고 모두 2줄 이상 → 블록마다 상품
- * - 블록이 1개뿐이어도 3줄 이상이면 브랜드/상품명/옵션 구조로 본다
- * - 3줄을 넘는 블록의 4번째 줄부터는 같은 상품의 다른 옵션 → 옵션 줄마다 상품 1개
- * - 2줄짜리 블록은 어느 줄이 무엇인지 모호하므로 그 블록만 free 로 둔다
+ * Split the products contained in one order (used to build one card per product).
+ * - Label format ("➡️ 옷제목 ;") or blocks that are all single-liners → treated as one product, same as before
+ * - Two or more blank-line-separated blocks, all with 2+ lines → one product per block
+ * - Even a single block is read as brand/product-name/option structure if it has 3+ lines
+ * - A block longer than 3 lines: the 4th line onward are other options of the same product → one product per option line
+ * - A 2-line block is ambiguous about which line is which, so that block alone is kept as free text
  */
 export function splitProducts(order: Pick<ParsedOrder, "productBlocks" | "productLabeled">): ProductItem[] {
   const blocks = order.productBlocks.filter((b) => b.length > 0);

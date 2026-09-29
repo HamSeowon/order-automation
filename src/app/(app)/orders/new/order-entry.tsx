@@ -12,19 +12,19 @@ import { setCurrentUserName, useCurrentUserName } from "@/lib/current-user";
 
 type Card = {
   key: string;
-  /** 같은 메시지에서 나온 카드 묶음 ID (orders.order_group_id). 직접 추가한 카드는 null → 저장 시 새 그룹 */
+  /** ID shared by cards from the same message (orders.order_group_id). Manually added cards get null → a new group on save */
   groupId: string | null;
   fields: OrderDraft;
-  /** 이 카드로 분리된 원문 (대조용) */
+  /** Raw text this card was split from (for cross-checking) */
   raw: string;
-  /** 사람이 약칭을 직접 고쳤으면 브랜드 원문이 바뀌어도 약칭을 자동으로 덮어쓰지 않음 */
+  /** If a person edited the short form directly, don't auto-overwrite it when the raw brand text changes */
   brandShortEdited: boolean;
   saving: boolean;
   error: string | null;
 };
 
 export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEntry[]; rooms: string[] }) {
-  // 카드에서 바로 딕셔너리에 추가하면 이 화면의 제안에도 즉시 반영
+  // Adding to the dictionary directly from a card is reflected in this screen's suggestions immediately
   const [dict, setDict] = useState(initialDict);
   const [sourceRoom, setSourceRoom] = useState("");
   const [rawText, setRawText] = useState("");
@@ -77,7 +77,7 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
       const target = prev.find((c) => c.key === key);
       const shared = !!target?.groupId && GROUP_SHARED_FIELDS.includes(field);
       return prev.map((c) => {
-        // 이름/전화/주소 등은 같은 묶음의 다른 카드에도 반영
+        // Fields like name/phone/address are also applied to other cards in the same group
         if (shared && c.key !== key && c.groupId === target.groupId) {
           return { ...c, fields: { ...c.fields, [field]: value }, error: null };
         }
@@ -101,7 +101,7 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
     }
     const nextDict = [...dict, { full_name: res.entry.full_name, short_form: res.entry.short_form }];
     setDict(nextDict);
-    // 약칭이 비어 있던 다른 카드들도 새 딕셔너리로 다시 제안
+    // Also re-suggest a short form, using the updated dictionary, for other cards that had none
     setCards((prev) =>
       prev.map((c) => {
         if (c.brandShortEdited || c.fields.brand_short || !c.fields.brand_raw.trim()) return c;
@@ -236,7 +236,7 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
   );
 }
 
-/** 같은 묶음 카드가 여러 장이면 "묶음 1/3" 표시 */
+/** Shows "group 1/3" when the same group has multiple cards */
 function groupLabel(cards: Card[], card: Card): string | null {
   if (!card.groupId) return null;
   const members = cards.filter((c) => c.groupId === card.groupId);

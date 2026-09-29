@@ -1,10 +1,10 @@
-// 브랜드 딕셔너리 입력값 검증·일괄 등록 파싱 (순수 함수, 서버/클라이언트 공용)
+// Brand-dictionary input validation and bulk-entry parsing (pure functions, shared by server and client)
 
 export type BrandInput = { full_name: string; short_form: string };
 
 const MAX_LEN = 100;
 
-/** 대소문자·앞뒤 공백 무시 비교 키 (DB 유일 인덱스 lower(btrim(full_name)) 와 동일 규칙) */
+/** Comparison key ignoring case and surrounding whitespace (same rule as the DB's unique index lower(btrim(full_name))) */
 export const brandKey = (fullName: string) => fullName.trim().toLowerCase();
 
 export function validateBrand(input: unknown): { ok: true; value: BrandInput } | { ok: false; error: string } {
@@ -19,13 +19,13 @@ export function validateBrand(input: unknown): { ok: true; value: BrandInput } |
   return { ok: true, value: { full_name, short_form } };
 }
 
-// 한 줄에 "전체이름 <구분자> 줄임말". 엑셀에서 두 열 복사(탭) / = / → / -> / 쉼표 순으로 찾는다.
-// 쉼표는 브랜드 이름에 들어갈 수 있어 가장 마지막 쉼표 기준.
+// Each line is "full name <separator> short form". Looks for tab (pasting two Excel columns) / = / → / -> / comma, in that order.
+// Commas can appear inside brand names, so a comma separator is matched on its last occurrence.
 const SEPARATORS = ["\t", "=", "→", "->"];
 
 export type BrandLineParse = {
   entries: BrandInput[];
-  /** 해석하지 못한 줄 (줄 번호는 1부터) */
+  /** Lines that couldn't be parsed (1-based line numbers) */
   errors: { line: number; text: string }[];
 };
 
@@ -54,7 +54,7 @@ export function parseBrandLines(text: string): BrandLineParse {
       errors.push({ line: i + 1, text: line });
       return;
     }
-    // 같은 목록 안에서 중복되면 뒤에 나온 줄이 우선
+    // If the same entry appears twice in the list, the later line wins
     const key = brandKey(v.value.full_name);
     const prev = seen.get(key);
     if (prev !== undefined) entries[prev] = v.value;

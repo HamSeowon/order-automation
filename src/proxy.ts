@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth-utils";
 
-// 1차 차단 (기획서 3.1-8): 로그인 쿠키가 없으면 로그인 화면으로 (GET) / 401 (그 외).
-// 쿠키가 "있는지만" 본다 — 진짜 세션인지는 각 page / Server Action / Route Handler 가 DB로 확인 (src/lib/auth.ts).
+// First-line block (spec 3.1-8): if there's no login cookie, redirect to the login screen (GET) / 401 (everything else).
+// This only checks whether the cookie "exists" — each page / Server Action / Route Handler checks the real session against the DB (src/lib/auth.ts).
 export function proxy(req: NextRequest) {
   if (req.cookies.has(SESSION_COOKIE)) return NextResponse.next();
 
@@ -16,6 +16,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // 로그인 화면(및 로그인 Server Action POST)과 정적 파일은 제외
+  // Exclude the login screen (and its Server Action POST) and static files
   matcher: ["/((?!login(?:/|$)|_next/static|_next/image|favicon\\.ico).*)"],
 };

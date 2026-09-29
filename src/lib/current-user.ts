@@ -2,8 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 
-// 입력자(현재 사용자) 이름은 브라우저별로 기억 (편의 기능). 저장소 접근이 막혀 있어도 동작해야 함.
-// 로그인 기능이 생기면(9장 7번) 그쪽 정보로 대체.
+// The "entered by" (current user) name is remembered per browser, as a convenience. Must keep working even if storage access is blocked.
+// Superseded once login carries this information (Section 9, step 7).
 const KEY = "order-entry:created_by";
 const EVENT = "order-entry:created_by-change";
 

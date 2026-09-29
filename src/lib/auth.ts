@@ -7,9 +7,9 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import type { AppRole } from "@/lib/database.types";
 import { SESSION_COOKIE, SESSION_DAYS, clientIpFrom } from "@/lib/auth-utils";
 
-// 로그인 세션 (기획서 3.1-8, 4.6) — Data Access Layer.
-// proxy 는 쿠키가 있는지만 보고, 실제 확인은 여기서 DB 세션으로 한다.
-// 모든 페이지·Server Action·Route Handler 가 이 파일의 함수로 확인해야 한다.
+// Login session (spec 3.1-8, 4.6) — Data Access Layer.
+// proxy only checks whether the cookie exists; the real check happens here against the DB session.
+// Every page, Server Action, and Route Handler must check in through the functions in this file.
 
 export type Session = { id: string; role: AppRole };
 
@@ -18,7 +18,7 @@ export const FORBIDDEN_MESSAGE = "관리자만 할 수 있습니다.";
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
-/** 현재 요청의 로그인 세션 (없거나 만료면 null). 한 번의 렌더 안에서는 한 번만 조회 */
+/** The current request's login session (null if missing or expired). Looked up only once per render */
 export const getSession = cache(async (): Promise<Session | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token || token.length > 200) return null;
@@ -30,21 +30,21 @@ export const getSession = cache(async (): Promise<Session | null> => {
     .gt("expires_at", new Date().toISOString())
     .maybeSingle();
   if (error || !data) return null;
-  // 마지막 사용 시각은 1시간에 한 번만 갱신 (매 요청 쓰기 방지)
+  // Only refresh last_seen_at once per hour (avoid a write on every request)
   if (Date.now() - Date.parse(data.last_seen_at) > 60 * 60 * 1000) {
     await supabase.from("app_sessions").update({ last_seen_at: new Date().toISOString() }).eq("id", data.id);
   }
   return { id: data.id, role: data.role };
 });
 
-/** 페이지용: 로그인 안 했으면 로그인 화면으로 */
+/** For pages: redirect to the login screen if not logged in */
 export async function requirePageSession(): Promise<Session> {
   const session = await getSession();
   if (!session) redirect("/login");
   return session;
 }
 
-/** 관리자 페이지용: 관리자가 아니면 주문 입력 화면으로 */
+/** For admin pages: redirect to the order-entry screen if not an admin */
 export async function requireAdminPage(): Promise<Session> {
   const session = await requirePageSession();
   if (session.role !== "admin") redirect("/orders/new");
@@ -52,7 +52,7 @@ export async function requireAdminPage(): Promise<Session> {
 }
 
 /**
- * Server Action / Route Handler 용. 통과하면 null, 막히면 사용자에게 보여줄 오류 문구.
+ * For Server Actions / Route Handlers. Returns null if allowed, or an error message to show the user if denied.
  *   const denied = await authorize(); if (denied) return { ok: false, error: denied };
  */
 export async function authorize(role: "member" | "admin" = "member"): Promise<string | null> {
@@ -62,7 +62,7 @@ export async function authorize(role: "member" | "admin" = "member"): Promise<st
   return null;
 }
 
-/** 로그인 성공 시: 무작위 토큰 → 쿠키, 그 해시 → DB 세션 (30일) */
+/** On successful login: a random token → cookie, its hash → DB session (30 days) */
 export async function createSession(role: AppRole): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
@@ -79,7 +79,7 @@ export async function createSession(role: AppRole): Promise<void> {
   });
 }
 
-/** 로그아웃: 현재 세션 행 삭제 + 쿠키 삭제 */
+/** Logout: delete the current session row + delete the cookie */
 export async function destroyCurrentSession(): Promise<void> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
@@ -87,7 +87,7 @@ export async function destroyCurrentSession(): Promise<void> {
   store.delete(SESSION_COOKIE);
 }
 
-/** 로그인 실패 잠금 기준 IP */
+/** IP used as the login-failure lockout key */
 export async function clientIp(): Promise<string> {
   const h = await headers();
   return clientIpFrom((name) => h.get(name));

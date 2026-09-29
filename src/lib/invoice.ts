@@ -1,7 +1,7 @@
-// 로젠 송장 파일접수 양식 (기획서 4.3) — 순수 함수만. 엑셀 파일 생성은 invoice-xlsx.ts
+// Logen shipping-label file-upload template (spec 4.3) — pure functions only. The .xlsx file itself is built in invoice-xlsx.ts
 //
-// 양식: Sheet1 하나, 헤더 없음, 주문(상품) 1건 = 1행, 5열 모두 텍스트
-//   A 이름 (코드) | B 010 1234 5678 | C 도로명주소, 나머지주소 | D 약칭-상품명-색상 사이즈  (메모) | E 코드
+// Template: one sheet (Sheet1), no header row, 1 order (product) = 1 row, all 5 columns are text
+//   A name (code) | B 010 1234 5678 | C road-name address, rest of address | D short-productname-color size  (memo) | E code
 
 import type { Order } from "@/lib/database.types";
 import { excelProductName } from "@/lib/orders";
@@ -11,11 +11,11 @@ export type InvoiceSource = Pick<
   "name" | "phone" | "addr1" | "addr2" | "brand_short" | "brand_raw" | "product_name" | "color" | "size" | "note" | "vendor" | "source_room"
 >;
 
-/** 기존 양식의 열 너비 (A~E) */
+/** Column widths of the existing template (A–E) */
 export const INVOICE_COL_WIDTHS = [15, 16.88, 67.38, 57.5, 9.63];
 export const INVOICE_SHEET_NAME = "Sheet1";
 
-/** E열·A열 괄호 안 코드: 거래처, 없으면 출처 방 (2026-09-26 결정) */
+/** Code in parentheses for columns E/A: vendor, or the source chat if empty (decided 2026-09-26) */
 export const invoiceCode = (o: Pick<InvoiceSource, "vendor" | "source_room">) => o.vendor.trim() || o.source_room.trim();
 
 export function invoiceRow(o: InvoiceSource): [string, string, string, string, string] {
@@ -34,14 +34,14 @@ export function invoiceRow(o: InvoiceSource): [string, string, string, string, s
   ];
 }
 
-/** 기본 파일 이름: 2026-09-26.xlsx, 같은 날 두 번째부터 2026-09-26_2.xlsx */
+/** Default file name: 2026-09-26.xlsx, 2026-09-26_2.xlsx from the second export of the same day */
 export function defaultExportFileName(kstDate: string, seq: number): string {
   return `${kstDate}${seq > 1 ? `_${seq}` : ""}.xlsx`;
 }
 
 /**
- * 사용자가 입력한 파일 이름 정리: 경로·금지 문자 제거, 100자 제한, .xlsx 확장자 보장.
- * 비어 있으면 null (→ DB 함수가 기본 이름을 붙인다)
+ * Clean up a user-provided file name: strip path/forbidden characters, cap at 100 chars, ensure a .xlsx extension.
+ * Returns null if empty (→ the DB function attaches the default name)
  */
 export function sanitizeExportFileName(input: unknown): string | null {
   if (typeof input !== "string") return null;
@@ -50,7 +50,7 @@ export function sanitizeExportFileName(input: unknown): string | null {
     .replace(/\.xlsx$/i, "")
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")
     .split(/\s+/)
-    .filter((part) => part && !/^\.+$/.test(part)) // "..", "." 같은 경로 조각 제거
+    .filter((part) => part && !/^\.+$/.test(part)) // drop path fragments like ".." or "."
     .join(" ")
     .replace(/^\.+/, "")
     .trim();
@@ -58,7 +58,7 @@ export function sanitizeExportFileName(input: unknown): string | null {
   return `${name.slice(0, 100)}.xlsx`;
 }
 
-/** Content-Disposition 헤더 (한글 파일 이름: RFC 5987 filename* + ASCII 대체 이름) */
+/** Content-Disposition header (for non-ASCII file names: RFC 5987 filename* + an ASCII fallback name) */
 export function contentDisposition(fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;

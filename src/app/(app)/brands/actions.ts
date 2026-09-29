@@ -6,7 +6,7 @@ import { authorize } from "@/lib/auth";
 import type { BrandEntry } from "@/lib/database.types";
 import { brandKey, parseBrandLines, validateBrand } from "@/lib/brands";
 
-// Server Action 은 직접 POST 로도 호출할 수 있으므로 모든 함수가 먼저 authorize() 로 로그인을 확인한다.
+// Server Actions can also be called directly via POST, so every function checks login with authorize() first.
 
 export type BrandResult = { ok: true; entry: BrandEntry } | { ok: false; error: string };
 
@@ -14,7 +14,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MAX_IMPORT = 2000;
 
 function dbError(error: { code?: string; message: string }): string {
-  // brand_dictionary_full_name_key (lower(btrim(full_name))) 위반
+  // Violates brand_dictionary_full_name_key (lower(btrim(full_name)))
   if (error.code === "23505") return "이미 등록된 브랜드 이름입니다 (대소문자·공백 무시).";
   return `DB 오류: ${error.message}`;
 }
@@ -82,14 +82,14 @@ export type ImportResult =
       updated: number;
       unchanged: number;
       errors: { line: number; text: string }[];
-      /** 등록 후 전체 목록 (화면 갱신용) */
+      /** Full list after import (for refreshing the screen) */
       entries: BrandEntry[];
     }
   | { ok: false; error: string };
 
 /**
- * 여러 줄 일괄 등록. 이미 있는 전체 이름(대소문자·공백 무시)은 줄임말만 갱신한다.
- * 유일 인덱스가 표현식 인덱스라 PostgREST upsert 를 쓸 수 없어서, 기존 목록과 비교해 insert/update 로 나눈다.
+ * Bulk-register multiple lines. For a full name that already exists (ignoring case/whitespace), only the short form is updated.
+ * The unique index is an expression index, so PostgREST upsert can't be used — instead we diff against the existing list and split into insert/update.
  */
 export async function importBrands(text: unknown): Promise<ImportResult> {
   const denied = await authorize();

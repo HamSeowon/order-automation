@@ -9,7 +9,7 @@ const DICT = [
   { full_name: "PXG", short_form: "PXG" },
 ];
 
-// 테스트에서 그룹 ID를 예측할 수 있게 순번으로 발급
+// Issue sequential IDs so the group ID is predictable in tests
 const seqIds = () => {
   let n = 0;
   return () => `group-${++n}`;
@@ -22,14 +22,14 @@ const pick = (d: ReturnType<typeof drafts>[number]) => {
 };
 
 const CONTACT = {
-  name: "권선희",
-  phone: "010-3056-9333",
-  addr1: "서울시 송파구 위례광장로 163번지",
-  addr2: "2203동 203호 송파더센트레",
+  name: "이서연",
+  phone: "010-2456-7890",
+  addr1: "서울시 송파구 위례성대로 27번지",
+  addr2: "1105동 402호 위례파크뷰",
 };
 
-describe("한 메시지 여러 상품 → 상품 수만큼 카드", () => {
-  it("요구사항 예시: 상품 2개 → 카드 2장, 연락처 복사, 같은 그룹", () => {
+describe("one message, multiple products → one card per product", () => {
+  it("spec example: 2 products → 2 cards, contact info copied, same group", () => {
     const text = `A.P.C GOLF [아페쎄 골프]
 세일러 티셔츠
 화이트77
@@ -38,10 +38,10 @@ describe("한 메시지 여러 상품 → 상품 수만큼 카드", () => {
 에센셜 캐시미어 스웨터(WOMEN)
 민트77
 
-서울시 송파구 위례광장로 163번지 2203동 203호 송파더센트레
-01030569333
+서울시 송파구 위례성대로 27번지 1105동 402호 위례파크뷰
+01024567890
 
-권선희`;
+이서연`;
     expect(drafts(text).map(pick)).toEqual([
       {
         group: "group-1", ...CONTACT,
@@ -56,7 +56,7 @@ describe("한 메시지 여러 상품 → 상품 수만큼 카드", () => {
     ]);
   });
 
-  it("상품 3개 + 연락처 순서가 다른 경우 (이름 → 전화 → 주소)", () => {
+  it("3 products + contact info in a different order (name → phone → address)", () => {
     const text = `PXG
 골프 바지
 블랙 32
@@ -85,21 +85,21 @@ describe("한 메시지 여러 상품 → 상품 수만큼 카드", () => {
     }
     expect(result.map(({ brand_raw, brand_short, product_name, color, size }) => ({ brand_raw, brand_short, product_name, color, size }))).toEqual([
       { brand_raw: "PXG", brand_short: "PXG", product_name: "골프 바지", color: "블랙", size: "32" },
-      // "니트"는 한글 2자라 이름 패턴과 겹치지만, 상품 블록 안이라 상품명으로 처리돼야 함
+      // "니트" is 2 Hangul characters and overlaps the name pattern, but must be treated as a product name since it's inside a product block
       { brand_raw: "지포어", brand_short: "GF", product_name: "니트", color: "네이비", size: "L" },
-      // 딕셔너리에 없는 브랜드/색상도 옵션 줄에서 사이즈를 뺀 나머지를 색상으로
+      // A brand/color not in the dictionary still has the size stripped from the option line, with the rest treated as color
       { brand_raw: "미등록브랜드", brand_short: "", product_name: "바람막이", color: "라벤더", size: "M" },
     ]);
   });
 
-  it("같은 상품, 옵션만 다른 경우 (한 블록에 옵션 줄 여러 개) → 옵션마다 카드", () => {
+  it("same product, only the options differ (multiple option lines in one block) → one card per option", () => {
     const text = `PXG
 골프 바지
 블랙 32
 화이트 34
 
 김영희 01011112222
-부산 연제구 쌍미천로 190 동원맨션 A동 502호`;
+부산 연제구 반송로 88 미래맨션 A동 210호`;
     const result = drafts(text).map(pick);
     expect(result.map(({ group, product_name, color, size }) => ({ group, product_name, color, size }))).toEqual([
       { group: "group-1", product_name: "골프 바지", color: "블랙", size: "32" },
@@ -108,7 +108,7 @@ describe("한 메시지 여러 상품 → 상품 수만큼 카드", () => {
     expect(result.every((r) => r.name === "김영희" && r.phone === "010-1111-2222")).toBe(true);
   });
 
-  it("같은 상품, 옵션만 다른 경우 (블록을 반복해서 쓴 경우) → 블록마다 카드", () => {
+  it("same product, only the options differ (the block is repeated) → one card per block", () => {
     const text = `PXG
 골프 바지
 블랙 32
@@ -118,14 +118,14 @@ PXG
 블랙 34
 
 김영희 01011112222
-부산 연제구 쌍미천로 190 동원맨션 A동 502호`;
+부산 연제구 반송로 88 미래맨션 A동 210호`;
     expect(drafts(text).map((d) => [d.groupId, d.fields.color, d.fields.size])).toEqual([
       ["group-1", "블랙", "32"],
       ["group-1", "블랙", "34"],
     ]);
   });
 
-  it("수량 표기는 카드를 늘리지 않고 참고사항으로", () => {
+  it("a quantity notation doesn't add more cards, it goes into the note instead", () => {
     const text = `PXG
 골프 바지
 블랙 32 2개
@@ -139,7 +139,7 @@ PXG
 화이트 FREE 1개
 
 김영희 01011112222
-부산 연제구 쌍미천로 190 동원맨션 A동 502호`;
+부산 연제구 반송로 88 미래맨션 A동 210호`;
     expect(drafts(text).map(({ fields: { product_name, color, size, note } }) => ({ product_name, color, size, note }))).toEqual([
       { product_name: "골프 바지", color: "블랙", size: "32", note: "수량 2개" },
       { product_name: "니트", color: "네이비", size: "L", note: "수량 3개" },
@@ -147,7 +147,7 @@ PXG
     ]);
   });
 
-  it("한 번에 붙여넣은 메시지 2개 → 메시지마다 다른 그룹", () => {
+  it("2 messages pasted at once → a different group per message", () => {
     const text = `PXG
 골프 바지
 블랙 32
@@ -157,7 +157,7 @@ PXG
 네이비 L
 
 김영희 01011112222
-부산 연제구 쌍미천로 190 동원맨션 A동 502호
+부산 연제구 반송로 88 미래맨션 A동 210호
 
 지포어
 모자
@@ -165,7 +165,7 @@ PXG
 
 박철수
 01033334444
-서울 강서구 마곡서1로 100 마곡엠밸리6단지 616-1103호`;
+서울 강서구 화곡로 55 행복엠밸리3단지 512-903호`;
     const result = drafts(text).map(pick);
     expect(result.map((r) => [r.group, r.name, r.product_name])).toEqual([
       ["group-1", "김영희", "골프 바지"],
@@ -174,29 +174,29 @@ PXG
     ]);
   });
 
-  it("기존 라벨 형식/한 줄 상품 형식은 메시지당 카드 1장 유지 (기획서 부록)", () => {
+  it("the legacy label format / one-line product format still produces one card per message (spec appendix)", () => {
     const text = `➡️ 옷제목 ; 어메이징 알렉스 볼마커 벨트
 
 컬러/사이즈/수량 ;
 
 블랙  1개
 
-➡️ 성함 ; 박시연
+➡️ 성함 ; 최유리
 
-➡️ 전번 ; 010 8674. 8568
+➡️ 전번 ; 010 4521. 6390
 
 ➡️ 주소 ; 서울시 송파구
 
-올림픽로 145 리센츠상가 지하1층 15-2
+백제고분로 212 한빛상가 지하1층 8-3
 
 티, 블루
 
-부산 연제구 쌍미천로 190 동원맨션 A동 502호
+부산 연제구 반송로 88 미래맨션 A동 210호
 
-심춘선 01087698178`;
+오하늘 01056372041`;
     expect(drafts(text).map((d) => [d.groupId, d.fields.name])).toEqual([
-      ["group-1", "박시연"],
-      ["group-2", "심춘선"],
+      ["group-1", "최유리"],
+      ["group-2", "오하늘"],
     ]);
   });
 });
@@ -215,7 +215,7 @@ describe("parseOption", () => {
 });
 
 describe("toOrderInsert", () => {
-  it("유효한 order_group_id 는 유지하고, 형식이 틀리면 버린다 (DB 기본값으로 새 그룹)", () => {
+  it("keeps a valid order_group_id, drops a malformed one (falls back to a new group via the DB default)", () => {
     const id = "3f2c1a9e-8b7d-4c6e-9a1b-2c3d4e5f6a7b";
     expect(toOrderInsert({ name: "a", order_group_id: id }).order_group_id).toBe(id);
     expect(toOrderInsert({ name: "a", order_group_id: "'; drop table" }).order_group_id).toBeUndefined();

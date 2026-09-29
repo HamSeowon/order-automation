@@ -1,11 +1,11 @@
-// 로그인 비밀번호 설정 (기획서 4.5): 직원 공용(member) / 관리자(admin)
+// Set the login password (spec 4.5): shared staff (member) / admin (admin)
 //
-//   npm run set-password            → 어떤 비밀번호를 바꿀지 물어봄
-//   npm run set-password -- member  → 직원 공용 비밀번호
-//   npm run set-password -- admin   → 관리자 비밀번호
+//   npm run set-password            → asks which password to change
+//   npm run set-password -- member  → shared staff password
+//   npm run set-password -- admin   → admin password
 //
-// 비밀번호는 화면에 보이지 않게 두 번 입력받는다 (명령 인자로 받지 않음 — 셸 기록에 남지 않도록).
-// 바꾼 쪽의 기존 로그인 세션은 모두 끊는다 (공용 비밀번호를 바꾸면 직원 전원 로그아웃).
+// The password is entered twice without echoing to the screen (never accepted as a command argument, so it doesn't end up in shell history).
+// All existing login sessions of the changed kind are ended (changing the shared password logs out every staff member).
 
 import { createInterface } from "node:readline";
 import { createClient } from "@supabase/supabase-js";
@@ -19,14 +19,14 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-/** 한 줄 입력. hidden 이면 입력한 글자를 화면에 표시하지 않는다 */
+/** Reads one line of input. When hidden is true, typed characters are not echoed to the screen */
 function ask(question: string, hidden = false): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
     if (hidden) {
       const out = rl as unknown as { _writeToOutput: (s: string) => void; output: NodeJS.WriteStream };
       out._writeToOutput = (s: string) => {
-        // 질문 문구는 보여주고, 그 뒤 입력 글자는 숨김
+        // Show the prompt text, but hide the characters typed after it
         if (s.startsWith(question)) out.output.write(question);
         else if (s.includes("\n") || s.includes("\r")) out.output.write("\n");
       };
@@ -62,7 +62,7 @@ async function main() {
 
   const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
-  // 공용과 관리자 비밀번호가 같으면 직원이 관리자로 로그인되므로 거부
+  // Reject if the shared and admin passwords would end up equal, since that would let staff log in as admin
   const other: Role = role === "member" ? "admin" : "member";
   const { data: otherRow, error: loadError } = await supabase
     .from("app_credentials")

@@ -1,346 +1,297 @@
-# **주문 반자동화 시스템 — 기획 문서**
+# **Order Semi-Automation System — Planning Document**
 
-> 이 문서는 Claude Code가 구현 작업을 시작할 때 참고할 기획서입니다. 배경: 아버님이 운영하는 도소매 사업의 주문 처리 과정을 반자동화합니다.
-
----
-
-## **1\. 배경 및 문제 정의**
-
-* 아버님은 **지역별 상인 단톡방 10\~20개**에서 각각 주문을 받는다.  
-* 각 방에서 온 주문을 아버님이 직접 취합해서, **직원들이 보는 단일 단톡방 하나**에 정리해 올린다.  
-* 정리된 주문은 최종적으로 **엑셀 파일**로 관리된다 (기존에 쓰던 고정 양식 있음).  
-* 상품명은 사진으로 오는 경우가 많아 사람이 직접 입력해야 하며, 브랜드명은 줄임말(shorten form)로 표기하는 관행이 있다 (예: `AMAZING` → `AMZ`).  
-* 현재는 이 모든 과정이 수작업이라 시간이 오래 걸리고, 오탈자·누락 위험이 있다.
-
-**이 프로젝트가 해결하려는 것**: 완전 자동화가 아니라 **반자동화**. 사람이 최종 확인은 하되, 반복적인 타이핑·재정리 작업을 줄인다.
+This is the planning document for Claude Code to reference when starting implementation. 
+   Background: we are semi-automating the order-handling process of my father's wholesale/retail business.
+   Note: the app's UI is in Korean. Korean strings in this document (UI labels, button names, message labels, file names) are literal values and must be kept as-is.
 
 ---
 
-## **2\. 요구사항 (확정)**
+## **1. Background and Problem Definition**
 
-| 항목 | 내용 |
+* My father receives orders separately from **10–20 regional merchant KakaoTalk group chats**.
+* He manually collects the orders from each chat and posts a cleaned-up version to **a single group chat that the staff read**.
+* The organized orders are ultimately managed in an **Excel file** (an existing fixed template).
+* Product names often arrive as photos, so a person has to type them in manually. By convention, brand names are written in a shortened form (e.g. `Apple` → `AP`).
+* Right now this entire process is manual, so it takes a long time and carries a risk of typos and missed orders.
+**What this project solves**: **semi-automation**, not full automation. A person still does the final check, but repetitive typing and re-organizing work is reduced.
+
+---
+
+## **2. Requirements (confirmed)**
+
+| Item | Details |
 | ----- | ----- |
-| 사용자 수 | 최대 5명 (아버지 \+ 직원) |
-| 동시 사용 | 필요함 — 여러 명이 동시에 다른 방의 주문을 입력할 수 있어야 함 |
-| 예상 주문량 | 미확정 (하루 단위로 꾸준히 발생, 규모는 운영하며 파악) |
-| 기존 엑셀 양식 | 고정: **이름 / 전화번호 / 주소 / 상품명** 4열. 상품명은 `브랜드-상품명-색상-사이즈` 조합 |
-| 상품명 미기재 시 | 사람이 사진 보고 직접 입력 |
-| 브랜드 표기 | 줄임말 사용 (딕셔너리로 관리, 예: AMAZING → AMZ) |
-| 개인정보 보관 정책 | 제한 없음 (보관 기간 로직 불필요) |
-| 배포 형태 | 웹사이트 (로컬 도구 아님, 여러 명이 접속해서 씀) |
+| Number of users | Up to 5 (my father + staff) |
+| Concurrent use | Required — several people must be able to enter orders from different chats at the same time |
+| Expected order volume | Not yet confirmed (orders come in steadily every day; scale will be learned during operation) |
+| Existing Excel template | Fixed: 4 columns — **Name / Phone number / Address / Product name**. Product name is a `Brand-ProductName-Color-Size` combination |
+| When product name is missing | A person looks at the photo and types it in |
+| Brand notation | Shortened forms (managed in a dictionary, e.g. AMAZING → AMZ) |
+| Personal data retention policy | No restrictions (no retention-period logic needed) |
+| Deployment | Website (not a local tool; multiple people log in and use it) |
 
-### **요구사항이 결정하는 기술적 제약**
+### **Technical constraints driven by the requirements**
 
-* **동시 사용이 필요하므로 브라우저 로컬 저장소(localStorage)는 사용 불가** — 서버 \+ 데이터베이스 구조 필수.  
-* 사용자 5명 규모이므로 회원가입·사람별 계정은 과설계. **직원 공용 비밀번호 + 관리자 비밀번호로 로그인** (3.1-8, 2026-09-27 확정).  
-* 개인정보 보관 정책에 제약이 없으므로 자동 삭제/만료 로직은 구현 범위에서 제외.
-
----
-
-## **3\. 기능 범위**
-
-### **3.1 MVP (1차 구현 범위)**
-
-1. **주문 텍스트 붙여넣기 → 자동 분리(파싱)**  
-   * 카톡 단체방에서 복사한 원문 텍스트를 붙여넣으면, 주문 단위로 자동 분리  
-   * 라벨(`➡️ 성함 ;` 등)이 있는 형식과 없는 형식 모두 처리 (아래 5장 파싱 로직 참고)  
-2. **출처 방 표시**  
-   * 어느 지역 단톡방에서 온 주문인지 선택/기록 (`source_room` 필드)  
-3. **필드별 확인·수정 화면**  
-   * 파싱 결과를 카드 형태로 표시, 사람이 확인 후 수정 가능  
-   * 필수 항목(이름/전화번호/주소) 누락 시 시각적으로 표시  
-4. **브랜드 딕셔너리 적용**  
-   * 브랜드 전체 이름 → 줄임말 자동 치환 (매칭 안 되면 원문 그대로 두고 표시, 사람이 딕셔너리에 추가하거나 직접 수정)  
-   * 딕셔너리 CRUD(추가/조회/수정/삭제) 관리 화면  
-5. **동시 사용 가능한 주문 목록**  
-   * 5명이 동시에 입력해도 서로의 작업이 충돌 없이 하나의 목록에 반영  
-6. **주문 목록 조회·수정·삭제**  
-   * 저장된 이후에도 상품/주소 등 자유롭게 수정 가능 (요구사항: "차후 주문 품목 및 주소 수정 쉽게")  
-7. **엑셀 송장 내보내기** (2026-09-26 요구사항 추가, 9장 6단계에서 구현)  
-   * **주문 목록 화면의 "엑셀 송장 내보내기" 버튼**을 누르면 새 `.xlsx` 파일을 다운로드 (주문 입력 화면의 카드 "전체 저장"(DB 저장)과는 별개 — 2026-09-26 결정)  
-   * 파일 이름 기본값은 오늘 날짜(KST) `2026-09-26.xlsx`, 다운로드 전에 이름을 바꿀 수 있음  
-   * 같은 날 두 번째 내보내기부터는 `2026-09-26_2.xlsx`, `_3` … 처럼 번호를 붙임  
-   * **아직 내보내지 않은 주문만** 파일에 넣고, 내보낸 주문에는 내보낸 시각을 DB에 기록해서 중복 내보내기를 막음  
-   * 열 구성은 기존 로젠 송장 양식(`로젠(파일접수).xlsx`)과 똑같이 맞춤 (4.3 참고)  
-   * 두 사람이 동시에 눌러도 같은 주문이 두 파일에 들어가지 않아야 함 (DB 한 번의 갱신으로 "미내보냄 → 내보냄"을 선점)  
-   * 내보내기 기록(파일 이름·시각·건수)을 남겨, 다운로드가 실패했거나 파일을 잃어버려도 같은 파일을 다시 받을 수 있게 함
-8. **로그인** (2026-09-27 요구사항 추가·같은 날 공용 비밀번호 방식으로 확정, 9장 7단계 — 2026-09-27 구현됨. DB: 4.5~4.7)
-   * **직원 전원이 공용 비밀번호 하나**로 로그인 (사람별 계정·회원가입 없음). 비밀번호는 **숫자 6자리**
-   * **관리자(1명, 본인)** 는 별도 **관리자 비밀번호**(숫자 6자리)로 로그인 → 관리 화면에서 공용 비밀번호 변경, 전원 로그아웃. 관리자도 다른 기능은 똑같이 사용
-   * 비밀번호는 **해시로만 저장** (Node 내장 `crypto.scrypt`, salt 포함). 평문은 DB·로그 어디에도 남기지 않음
-   * **로그인 실패가 반복되면 일정 시간 잠금**: 같은 접속 IP에서 5회 연속 실패 → 15분 잠금. 잠긴 동안에는 맞는 비밀번호도 거부. 한 IP가 잠겨도 다른 사람(다른 IP)은 로그인 가능
-   * **로그인 30일 유지** (로그인 시각부터 30일, 쿠키 + DB 세션). **로그아웃 버튼** (상단 메뉴)
-   * **공용 비밀번호를 바꾸면 직원 전원의 기존 로그인은 즉시 끊김** (직원이 그만뒀을 때 사용). 관리자 로그인은 유지
-   * **로그인하지 않으면 모든 페이지와 API(Server Action, 송장 다운로드 포함)에 접근 불가** — 화면·다운로드 주소(GET)는 로그인 화면으로 이동(로그인 후 원래 주소로 복귀), 그 외 요청은 401. Next.js `proxy`에서 1차 차단 + 각 Server Action / Route Handler 안에서 세션을 다시 확인 (proxy 만 믿지 않음). 관리 기능은 관리자 세션만
-   * **입력자 칸은 유지** — 누가 입력했는지는 지금처럼 주문 입력 화면의 "입력자" 칸(브라우저가 기억)에 직접 적음. 기존 주문의 입력자 기록도 그대로
-   * 참고(보안): 숫자 6자리는 경우의 수가 100만 개라 IP별 잠금만으로는 여러 IP를 쓰는 자동 공격을 완전히 막지 못함. 고객 개인정보가 있는 사이트이므로 배포 후 로그인 실패 기록을 가끔 확인하고, 필요하면 자릿수를 늘리거나 전체 실패 한도를 추가
-
-### **3.2 2차 구현 (MVP 안정화 이후)**
-
-8. **직원용 요약본 자동 생성**  
-   * 취합된 주문을 지역별/상품별로 정리한 텍스트 블록 생성 → 복사해서 직원 단톡방에 붙여넣기용  
-9. **중복·정정 주문 감지**  
-   * 같은 날짜 \+ 같은 전화번호가 이미 목록에 있으면 경고 표시 (자동 처리는 하지 않음, 확인 알림만)
-
-### **3.3 장기 검토 항목 (지금 범위 아님)**
-
-10. 지역별/상품별 일일 집계 통계  
-11. 텔레그램 등으로 플랫폼 전환 시 완전 자동 수집 (Bot API 기반) — 거래처 20곳 전환 부담이 커서 별도 의사결정 필요
+* **Because concurrent use is required, browser local storage (localStorage) cannot be used** — a server + database architecture is mandatory.
+* With only 5 users, sign-up and per-person accounts would be over-engineering. **Log in with a shared staff password + an admin password** (3.1-8, confirmed 2026-09-27).
+* Since there are no restrictions on personal data retention, auto-deletion/expiry logic is out of scope.
 
 ---
 
-## **4\. 데이터 모델**
+## **3. Feature Scope**
 
-### **4.1 `orders` 테이블**
+### **3.1 MVP (first implementation scope)**
 
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| id | uuid / serial | 기본키 |
-| source\_room | text | 어느 지역 단톡방에서 온 주문인지 |
-| name | text | 고객 이름 |
-| phone | text | 전화번호 (정규화: `010-1234-5678` 형식) |
-| addr1 | text | 시/구/번지 (도로명 주소까지) |
-| addr2 | text | 나머지 주소 (건물명/동/호수 등) |
-| brand\_raw | text | 브랜드 원문 (예: AMAZING) |
-| brand\_short | text | 딕셔너리 치환 결과 (예: AMZ) — 매칭 안 되면 brand\_raw와 동일하게 저장 |
-| product\_name | text | 상품명 |
-| color | text | 색상 |
-| size | text | 사이즈 (없을 수 있음) |
-| vendor | text | 거래처명 |
-| note | text | 참고사항 |
-| created\_by | text | 입력한 사람 (5명 중 누구) |
-| created\_at | timestamp | 등록 시각 |
-| updated\_at | timestamp | 최종 수정 시각 |
-| order\_group\_id | uuid | 같은 메시지(한 고객)에서 나온 여러 상품 주문을 묶는 ID (적용됨) |
-| exported\_at | timestamptz, null | 엑셀로 내보낸 시각. null 이면 아직 안 내보낸 주문 (적용됨) |
-| export\_id | uuid, null | 어느 내보내기 파일에 들어갔는지 → `exports.id` (적용됨) |
+1. **Paste order text → automatic splitting (parsing)**
+   * Paste raw text copied from a KakaoTalk group chat, and it is automatically split into individual orders
+   * Handle both labeled formats (e.g. `➡️ 성함 ;`) and unlabeled formats (see the parsing logic in Section 5)
+2. **Source chat indicator**
+   * Select/record which regional group chat the order came from (`source_room` field)
+3. **Per-field review and edit screen**
+   * Show parsing results as cards; a person reviews and can edit them
+   * Visually flag missing required fields (name / phone / address)
+4. **Apply brand dictionary**
+   * Automatically replace full brand name → short form (if there is no match, keep the original text and flag it; a person adds it to the dictionary or edits it manually)
+   * Dictionary CRUD (create/read/update/delete) management screen
+5. **Order list that supports concurrent use**
+   * Even when 5 people enter orders simultaneously, everyone's work lands in a single list without conflicts
+6. **View, edit, and delete orders in the list**
+   * Products, addresses, etc. can be freely edited even after saving (requirement: "make it easy to edit order items and addresses later")
+7. **Export Excel shipping labels** (requirement added 2026-09-26, implemented in Section 9 step 6)
+   * Clicking the **"엑셀 송장 내보내기" (Export Excel shipping labels) button on the order list screen** downloads a new `.xlsx` file (separate from the "전체 저장" (Save all — DB save) button on the order entry cards — decided 2026-09-26)
+   * Default file name is today's date (KST), e.g. `2026-09-26.xlsx`; the name can be changed before downloading
+   * From the second export on the same day, a number is appended: `2026-09-26_2.xlsx`, `_3`, …
+   * **Only orders that have not been exported yet** go into the file; exported orders get their export time recorded in the DB to prevent duplicate exports
+   * Column layout matches the existing Logen shipping template (`로젠(파일접수).xlsx`) exactly (see 4.3)
+   * Even if two people click at the same time, the same order must not end up in two files (a single DB update claims orders from "not exported → exported")
+   * Keep an export history (file name, time, count) so the same file can be downloaded again if the download failed or the file was lost
+8. **Login** (requirement added 2026-09-27 and finalized as a shared-password scheme the same day; Section 9 step 7 — implemented 2026-09-27. DB: 4.5–4.7)
+   * **All staff log in with one shared password** (no per-person accounts, no sign-up). The password is **6 digits**
+   * **The admin (1 person, me)** logs in with a separate **admin password** (6 digits) → from the admin screen, can change the shared password and log everyone out. The admin can use all other features the same way
+   * Passwords are **stored only as hashes** (Node built-in `crypto.scrypt`, with salt). Plaintext is never stored in the DB or logs
+   * **Lock out after repeated login failures**: 5 consecutive failures from the same IP → 15-minute lock. While locked, even the correct password is rejected. If one IP is locked, other people (other IPs) can still log in
+   * **Stay logged in for 30 days** (30 days from login time; cookie + DB session). **Logout button** (top menu)
+   * **Changing the shared password immediately ends all existing staff logins** (used when a staff member leaves). The admin login stays active
+   * **Without logging in, no page or API is accessible (including Server Actions and the label download)** — pages and download URLs (GET) redirect to the login screen (and return to the original URL after login); other requests get 401. First-line block in Next.js `proxy` + re-check the session inside every Server Action / Route Handler (do not rely on proxy alone). Admin features require an admin session
+   * **Keep the "entered by" field** — who entered an order is still typed directly into the "입력자" (Entered by) field on the order entry screen (remembered by the browser), as it is now. Existing orders' "entered by" records stay unchanged
+   * Security note: 6 digits give only 1 million combinations, so per-IP lockout alone cannot fully stop automated attacks using many IPs. Since the site holds customers' personal data, check the login-failure records occasionally after deployment and, if needed, increase the number of digits or add a global failure limit
 
-> created\_by 는 로그인 도입 후에도 지금처럼 **주문 입력 화면에서 직접 적는 이름 문자열** (사람별 계정이 없으므로). 기존 기록도 그대로.
+### **3.2 Second phase (after the MVP is stable)**
 
-### **4.2 `brand_dictionary` 테이블**
+8. **Auto-generate a staff summary**
+   * Generate a text block of collected orders organized by region/product → for copying and pasting into the staff group chat
+9. **Detect duplicate/corrected orders**
+   * If the same date + same phone number already exists in the list, show a warning (no automatic handling, notification only)
 
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| id | uuid / serial | 기본키 |
-| full\_name | text | 브랜드 전체 이름 (예: AMAZING) |
-| short\_form | text | 줄임말 (예: AMZ) |
+### **3.3 Long-term considerations (not in scope now)**
 
-### **4.3 엑셀 송장 열 매핑 (로젠 파일접수 양식 기준)**
-
-기존 양식 `로젠(파일접수).xlsx` 분석 결과 (2026-09-26):
-
-* 시트 `Sheet1` 하나에 **5열(A\~E)**, **헤더 행 없음** — 1행부터 바로 주문 데이터  
-* 모든 셀은 텍스트(일반 서식). 열 너비 A 15 / B 16.88 / C 67.38 / D 57.5 / E 9.63  
-* 원본에는 빈 `Sheet2` 도 있지만 **`Sheet1` 만 만든다** (2026-09-26 결정)  
-* 주문 1건(상품 1개) \= 1행
-
-| 열 | 양식에서 보이는 형태 | 매핑 |
-| ----- | ----- | ----- |
-| A | `이름 (코드)` | orders.name \+ " (" \+ 코드 \+ ")" — 코드는 E열과 같은 값, 코드가 비면 이름만 |
-| B | `010 1234 5678` (**하이픈 대신 공백**) | orders.phone 의 `-` 를 공백으로 |
-| C | `시군구 도로명 번호, 나머지주소` (**쉼표+공백**으로 구분) | orders.addr1 \+ ", " \+ orders.addr2 (addr2 없으면 addr1만) |
-| D | `약칭-상품명-색상 사이즈` \+ 가끔 `  (메모)` | brand\_short \+ "-" \+ product\_name \+ "-" \+ color \+ (" " \+ size if size) \+ ("  (" \+ note \+ ")" if note) |
-| E | 짧은 코드 (예: 굿1) | 기존 칸 사용 (새 컬럼 없음): orders.vendor, 비어 있으면 orders.source\_room |
-
-> 상품명 구분자 확정: 브랜드·상품명·색상 사이는 `-`, **사이즈 앞은 공백** (기존 "사이즈도 `-`" 가정과 다름).
-
-### **4.4 `exports` 테이블 (적용됨)**
-
-엑셀 내보내기 1회 \= 1행. 같은 날 번호(`_2`) 매기기와 재다운로드에 사용.
-
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| id | uuid | 기본키 |
-| export\_date | date | 내보낸 날짜 (KST) |
-| seq | int | 그날 몇 번째 내보내기인지 (1, 2, …). (export\_date, seq) 유일 |
-| file\_name | text | 실제 다운로드한 파일 이름 (사용자가 바꾼 이름 포함) |
-| order\_count | int | 들어간 주문 수 |
-| exported\_by | text | 내보낸 사람 |
-| exported\_at | timestamptz | 내보낸 시각 |
-
-내보내기는 DB 함수(RPC) 하나로 처리: exports 행 생성 → `update orders set exported_at = now(), export_id = … where exported_at is null` 을 한 트랜잭션에서 실행. 동시에 두 명이 눌러도 한 주문은 한 파일에만 들어감.
-
-### **4.5 `app_credentials` 테이블 (마이그레이션 준비됨, 로그인 구현은 9장 7단계)**
-
-비밀번호 해시 2행: `member`(직원 공용) / `admin`(관리자).
-
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| role | text (PK) | `member` 또는 `admin` |
-| password\_hash | text | scrypt 해시 (salt·파라미터 포함 문자열). 평문 저장 안 함 |
-| updated\_at | timestamptz | 마지막 변경 |
-
-첫 설정은 화면이 아니라 서버에서 한 번 실행하는 명령(`npm run set-password`)으로 한다 (관리자 비밀번호가 아직 없으므로).
-
-### **4.6 `app_sessions` 테이블 (마이그레이션 준비됨)**
-
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| id | uuid | 기본키 |
-| role | text | 어떤 비밀번호로 로그인했는지 (`member` / `admin`) |
-| token\_hash | text | 쿠키에 담긴 무작위 토큰의 SHA-256. 원본 토큰은 DB에 저장하지 않음 (DB가 유출돼도 세션 탈취 불가) |
-| created\_at | timestamptz | 로그인 시각 |
-| expires\_at | timestamptz | 로그인 + 30일 |
-| last\_seen\_at | timestamptz | 마지막 사용 |
-
-쿠키: `HttpOnly`, `Secure`(배포 시), `SameSite=Lax`, 30일. 로그아웃 \= 쿠키 삭제 \+ 해당 세션 행 삭제. 전원 로그아웃 \= `role = 'member'` 세션 전체 삭제.
-
-### **4.7 `login_attempts` 테이블 (마이그레이션 준비됨)**
-
-| 컬럼 | 타입 | 설명 |
-| ----- | ----- | ----- |
-| key | text (PK) | 잠금 기준. 지금은 `ip:<접속 IP>` |
-| failed\_count | int | 연속 실패 횟수 |
-| locked\_until | timestamptz, null | 이 시각까지 잠금 |
-| updated\_at | timestamptz | 마지막 실패 |
-
-DB 함수 `register_login_failure(key, 최대횟수, 잠금분)` 로 원자적으로 +1 → 한도 도달 시 잠금. 잠긴 동안의 실패는 잠금을 연장하지 않음. 잠금이 풀린 뒤, 또는 마지막 실패 후 15분이 지나면 1회부터 다시 셈. 로그인 성공 시 해당 행 삭제.
+10. Daily aggregate statistics by region/product
+11. Fully automatic collection when switching platforms, e.g. to Telegram (Bot API based) — moving 20 partner merchants over is a big burden, so this needs a separate decision
 
 ---
 
-## **5\. 파싱 로직 (기존 검증 완료 — 그대로 이식 권장)**
+## **4. Data Model**
 
-카톡 원문은 형식이 일정하지 않음 (라벨 있음/없음, 이름·전화·주소 순서 다름, 한 주문 안에도 줄바꿈이 불규칙). 아래 상태 기계(state machine) 방식으로 실제 예시 텍스트 기준 검증 완료됨.
+### **4.1 `orders` table**
 
-**핵심 아이디어**:
-
-1. 줄 단위로 순회하며 라벨(`➡️ 성함 ;`, `➡️ 전번 ;` 등)을 우선 인식  
-2. 라벨이 없는 줄은 정규식으로 전화번호(`01[0-9]-XXXX-XXXX` 패턴) / 이름(순수 한글 2\~5자) / 주소 시작(시·도 이름으로 시작) 여부 판별  
-3. 진행 중인 주문이 **전화번호 \+ 주소를 모두 확보하면 "완료"로 간주**, 다음 줄이 새 상품명처럼 보이면 새 주문 시작  
-4. 주소는 `로`/`길` \+ 숫자 패턴을 기준으로 "시/구/번지"와 "나머지주소"로 분리
-
-**참고 구현체**: 이전 단계에서 만든 프로토타입(`order-tool.html`)의 `segmentOrders()`, `splitAddress()`, `normalizePhone()` 함수를 그대로 포팅해서 쓰는 것을 권장함. 순수 JS 함수라 프레임워크 의존성 없이 이식 가능. 3개 이상의 실제 예시 텍스트로 이미 검증됨.
-
-**딕셔너리 적용 시점**: 파싱 직후 자동 치환하지 말고, 사람이 확인하는 카드 화면에서 브랜드 필드에 자동 제안(pre-fill)만 하고 최종 확정은 사람이 하도록 설계 (오타·신규 브랜드 대응).
-
----
-
-## **6\. 아키텍처 제안**
-
-\[브라우저 UI\] ── API 요청 ──→ \[백엔드\] ──→ \[DB\]
-
-  \- 주문 붙여넣기/파싱
-
-  \- 카드 확인·수정
-
-  \- 딕셔너리 관리 화면
-
-  \- 주문 목록 조회/수정/삭제
-
-  \- 엑셀 다운로드
-
-| 구성 요소 | 추천 | 이유 |
+| Column | Type | Description |
 | ----- | ----- | ----- |
-| 프레임워크 | Next.js | 프론트+백엔드 한 프로젝트로 처리, Claude Code로 다루기 쉬움 |
-| DB | Supabase (Postgres) | 동시 사용 요구사항 충족(정식 DB), 무료 tier로 시작 가능 |
-| 배포 | Vercel | Next.js와 궁합 좋음, 무료 tier로 시작 가능 (상업적 사용 시 약관 확인 필요 — TBD 참고) |
-| 인증 | 자체 비밀번호 로그인 (직원 공용 1개 + 관리자 1개, scrypt 해시, DB 세션 30일) | 사람별 계정이 필요 없어 Supabase Auth(이메일 기반)보다 단순. 모든 DB 접근이 이미 서버(secret 키)에서만 일어나므로 같은 구조로 세션 확인만 추가하면 됨 |
-| 엑셀 생성 | SheetJS (xlsx 라이브러리) | 클라이언트/서버 양쪽에서 사용 가능, 기존 프로토타입에서 검증됨 |
+| id | uuid / serial | Primary key |
+| source_room | text | Which regional group chat the order came from |
+| name | text | Customer name |
+| phone | text | Phone number (normalized: `010-1234-5678` format) |
+| addr1 | text | City/district/street number (up to the road-name address) |
+| addr2 | text | Rest of the address (building name / building no. / unit no., etc.) |
+| brand_raw | text | Original brand text (e.g. AMAZING) |
+| brand_short | text | Dictionary replacement result (e.g. AMZ) — if no match, stored the same as brand_raw |
+| product_name | text | Product name |
+| color | text | Color |
+| size | text | Size (may be empty) |
+| vendor | text | Vendor/partner name |
+| note | text | Notes |
+| created_by | text | Who entered it (one of the 5 people) |
+| created_at | timestamp | Created time |
+| updated_at | timestamp | Last modified time |
+| order_group_id | uuid | ID grouping multiple product orders from the same message (one customer) (applied) |
+| exported_at | timestamptz, null | Time exported to Excel. null means not yet exported (applied) |
+| export_id | uuid, null | Which export file it went into → `exports.id` (applied) |
+
+> Even after login was introduced, created_by remains **a name string typed directly on the order entry screen** (since there are no per-person accounts). Existing records stay as they are.
+
+### **4.2 `brand_dictionary` table**
+
+| Column | Type | Description |
+| ----- | ----- | ----- |
+| id | uuid / serial | Primary key |
+| full_name | text | Full brand name (e.g. AMAZING) |
+| short_form | text | Short form (e.g. AMZ) |
+
+### **4.3 Excel shipping label column mapping (based on the Logen file-upload template)**
+
+Analysis of the existing template `로젠(파일접수).xlsx` (2026-09-26):
+
+* One sheet, `Sheet1`, with **5 columns (A–E)** and **no header row** — order data starts directly on row 1
+* All cells are text (General format). Column widths: A 15 / B 16.88 / C 67.38 / D 57.5 / E 9.63
+* The original also has an empty `Sheet2`, but **only create `Sheet1`** (decided 2026-09-26)
+* 1 order (1 product) = 1 row
+
+| Column | Format seen in the template | Mapping |
+| ----- | ----- | ----- |
+| A | `Name (code)` | orders.name + " (" + code + ")" — code is the same value as column E; if the code is empty, name only |
+| B | `010 1234 5678` (**spaces instead of hyphens**) | orders.phone with `-` replaced by spaces |
+| C | `City/district road-name number, rest of address` (separated by **comma + space**) | orders.addr1 + ", " + orders.addr2 (addr1 only if addr2 is empty) |
+| D | `short-productname-color size` + sometimes `  (memo)` | brand_short + "-" + product_name + "-" + color + (" " + size if size) + ("  (" + note + ")" if note) |
+| E | Short code (e.g. 굿1) | Uses existing fields (no new column): orders.vendor, or orders.source_room if empty |
+
+> Product name separator confirmed: `-` between brand, product name, and color; **a space before the size** (differs from the earlier assumption that size also used `-`).
+
+### **4.4 `exports` table (applied)**
+
+1 Excel export = 1 row. Used for same-day numbering (`_2`) and re-downloads.
+
+| Column | Type | Description |
+| ----- | ----- | ----- |
+| id | uuid | Primary key |
+| export_date | date | Export date (KST) |
+| seq | int | Which export of the day (1, 2, …). (export_date, seq) is unique |
+| file_name | text | The actual downloaded file name (including a user-changed name) |
+| order_count | int | Number of orders included |
+| exported_by | text | Who exported |
+| exported_at | timestamptz | Export time |
+
+Export is handled by a single DB function (RPC): create the exports row → run `update orders set exported_at = now(), export_id = … where exported_at is null` in the same transaction. Even if two people click at once, each order goes into only one file.
+
+### **4.5 `app_credentials` table (migration prepared; login implemented in Section 9 step 7)**
+
+Two rows of password hashes: `member` (shared staff) / `admin` (administrator).
+
+| Column | Type | Description |
+| ----- | ----- | ----- |
+| role | text (PK) | `member` or `admin` |
+| password_hash | text | scrypt hash (string including salt and parameters). Plaintext is not stored |
+| updated_at | timestamptz | Last changed |
+
+Initial setup is done not through the UI but with a command run once on the server (`npm run set-password`), since no admin password exists yet.
+
+### **4.6 `app_sessions` table (migration prepared)**
+
+| Column | Type | Description |
+| ----- | ----- | ----- |
+| id | uuid | Primary key |
+| role | text | Which password was used to log in (`member` / `admin`) |
+| token_hash | text | SHA-256 of the random token stored in the cookie. The raw token is not stored in the DB (so sessions can't be hijacked even if the DB leaks) |
+| created_at | timestamptz | Login time |
+| expires_at | timestamptz | Login + 30 days |
+| last_seen_at | timestamptz | Last used |
+
+Cookie: `HttpOnly`, `Secure` (in production), `SameSite=Lax`, 30 days. Logout = delete cookie + delete that session row. Log everyone out = delete all sessions with `role = 'member'`.
+
+### **4.7 `login_attempts` table (migration prepared)**
+
+| Column | Type | Description |
+| ----- | ----- | ----- |
+| key | text (PK) | Lockout key. Currently `ip:<client IP>` |
+| failed_count | int | Consecutive failures |
+| locked_until | timestamptz, null | Locked until this time |
+| updated_at | timestamptz | Last failure |
+
+DB function `register_login_failure(key, max_attempts, lock_minutes)` atomically increments by 1 → locks when the limit is reached. Failures during a lock do not extend the lock. After the lock expires, or 15 minutes after the last failure, counting restarts from 1. On successful login, the row is deleted.
 
 ---
 
-## **7\. 화면 구성 (초안)**
+## **5. Parsing Logic (already validated — porting as-is recommended)**
 
-1. **주문 입력 화면**  
-   * 출처 방 선택 (드롭다운)  
-   * 원문 붙여넣기 → 자동 분리 버튼  
-   * 분리된 카드 목록 (필드별 수정 가능, 필수 항목 누락 시 강조 표시)  
-   * 개별/전체 저장 버튼  
-2. **주문 목록 화면**  
-   * 전체 주문 테이블 (검색/필터: 날짜, 출처 방, 이름, 전화번호 등)  
-   * 행 단위 수정/삭제  
-   * 엑셀 다운로드 버튼  
-3. **브랜드 딕셔너리 관리 화면**  
-   * 전체 이름 ↔ 줄임말 목록 (추가/수정/삭제)
-4. **로그인 화면** (9장 7단계)  
-   * 비밀번호(숫자 6자리) 입력 하나. 로그인하지 않으면 모든 페이지가 이 화면으로 이동 (로그인 후 원래 가려던 화면으로)  
-   * 상단 메뉴에 로그아웃 버튼 (관리자로 로그인했으면 "관리자" 표시 + 관리 화면 링크)
-5. **관리 화면** (관리자만, 9장 7단계)  
-   * 공용 비밀번호 변경 (변경하면 직원 전원 로그아웃)  
-   * 전원 로그아웃 (비밀번호는 그대로 두고 직원 세션만 끊기)  
-   * 관리자 비밀번호 변경 (현재 관리자 비밀번호 확인 후)  
-   * 로그인 잠금 현황 / 잠금 해제
+KakaoTalk raw text is inconsistent (labels present/absent, name/phone/address in varying order, irregular line breaks even within one order). The state-machine approach below has been validated against real example text.
+
+**Core idea**:
+
+1. Iterate line by line, recognizing labels (`➡️ 성함 ;`, `➡️ 전번 ;`, etc.) first
+2. For unlabeled lines, use regex to detect a phone number (`01[0-9]-XXXX-XXXX` pattern) / name (2–5 pure Hangul characters) / start of an address (begins with a city/province name)
+3. **An in-progress order is considered "complete" once it has both a phone number and an address**; if the next line looks like a new product name, start a new order
+4. Split the address into "city/district/street number" and "rest of address" based on the `로`/`길` + number pattern
+
+**Reference implementation**: Porting the `segmentOrders()`, `splitAddress()`, and `normalizePhone()` functions from the earlier prototype (`order-tool.html`) as-is is recommended. They are pure JS functions, so they can be ported without framework dependencies. Already validated with 3+ real example texts.
+
+**When to apply the dictionary**: Don't auto-replace right after parsing. Instead, design it so the brand field on the review card is only pre-filled with a suggestion, and a person makes the final confirmation (to handle typos and new brands).
 
 ---
 
-## **8\. 미확정 항목 (TBD — 구현 전 확인 필요)**
+## **6. Proposed Architecture**
 
-* \[x\] 엑셀 상품명 조합 시 구분자 — 로젠 양식 기준 `약칭-상품명-색상 사이즈` (4.3)  
-* \[x\] 로젠 양식 E열 코드 — 기존 칸 사용: 거래처(vendor), 비어 있으면 출처 방(source\_room)  
-* \[x\] D열 끝의 `(메모)` — 참고사항(note)이 있으면 붙임 (수량 표기 포함)  
-* \[x\] 내보내기 버튼 위치 — 주문 목록 화면의 별도 "엑셀 송장 내보내기" 버튼  
-* \[x\] 내보낸 뒤 수정된 주문 — 다시 내보내지 않고 목록에 "내보냄" 표시만  
-* \[x\] 시트 구성 — `Sheet1` 만  
-* \[ \] 브랜드 딕셔너리 초기 데이터 (전체 목록)  
-* \[x\] 5명의 권한 차이 여부 — 관리자만 관리 화면(공용 비밀번호 변경·전원 로그아웃), 그 외 기능은 전원 동일 (3.1-8)  
-* \[x\] 관리자 — 1명 (본인), 관리자 비밀번호로 로그인 (2026-09-27)  
-* \[x\] 비밀번호 — 숫자 6자리 (공용·관리자 모두), 잠금 — 같은 IP 5회 실패 → 15분 (2026-09-27)  
-* \[x\] 사람별 계정 — 두지 않음. 직원 전원 공용 비밀번호, 입력자 칸은 지금처럼 직접 입력 (2026-09-27)  
-* \[ \] 배포 도메인: `xxx.vercel.app` 그대로 쓸지 자체 도메인 구입할지  
-* \[ \] Vercel 무료 플랜 약관(비상업적 용도) 관련 — Pro 플랜($20/월) 전환 여부 결정
+[Browser UI] ── API requests ──→ [Backend] ──→ [DB]
 
----
+  - Paste/parse orders
 
-## **9\. 구현 순서 제안**
+  - Review/edit cards
 
-1. DB 스키마 세팅 (orders, brand\_dictionary)  
-2. 파싱 로직 이식 (기존 `order-tool.html`의 JS 함수 재사용)  
-3. 주문 입력 화면 (붙여넣기 → 카드 확인 → 저장) — 이 시점에서 로컬 실사용 테스트 가능  
-4. 딕셔너리 관리 화면  
-5. 주문 목록 조회/수정/삭제 \+ 필터  
-6. 엑셀 송장 내보내기 (로젠 양식, 미내보냄 주문만, 날짜별 파일 번호 — 3.1의 7, 4.3, 4.4)  
-7. 로그인 (직원 공용 비밀번호 + 관리자 비밀번호, 실패 잠금, 30일 유지, 전 페이지·API 차단 — 3.1-8, 4.5~4.7). — 구현됨 (2026-09-27)  
-8. 배포 (Vercel \+ Supabase 연결)  
-9. 실사용 테스트 → 파싱 예외 케이스 피드백 반영  
-10. (2차) 직원용 요약본 생성 기능  
-11. (2차) 중복 주문 감지
+  - Dictionary management screen
+
+  - View/edit/delete order list
+
+  - Excel download
+
+| Component | Recommendation | Reason |
+| ----- | ----- | ----- |
+| Framework | Next.js | Frontend + backend in one project; easy to work with in Claude Code |
+| DB | Supabase (Postgres) | Meets the concurrent-use requirement (a real database); can start on the free tier |
+| Deployment | Vercel | Pairs well with Next.js; can start on the free tier (check the terms for commercial use — see TBD) |
+| Auth | Custom password login (1 shared staff password + 1 admin password, scrypt hash, 30-day DB session) | No per-person accounts needed, so simpler than Supabase Auth (email-based). All DB access already happens only on the server (secret key), so the same structure just adds a session check |
+| Excel generation | SheetJS (xlsx library) | Works on both client and server; validated in the existing prototype |
 
 ---
 
-## **부록: 참고했던 실제 주문 원문 예시 (파싱 로직 검증용)**
+## **7. Screen Layout (draft)**
 
-➡️ 옷제목 ; 어메이징 알렉스 볼마커 벨트
+1. **Order entry screen**
+   * Source chat selection (dropdown)
+   * Paste raw text → auto-split button
+   * List of split cards (each field editable; missing required fields highlighted)
+   * Save-one / save-all buttons
+2. **Order list screen**
+   * Full order table (search/filter: date, source chat, name, phone number, etc.)
+   * Per-row edit/delete
+   * Excel download button
+3. **Brand dictionary management screen**
+   * List of full name ↔ short form (add/edit/delete)
+4. **Login screen** (Section 9 step 7)
+   * A single password input (6 digits). Without login, every page redirects here (and returns to the intended page after login)
+   * Logout button in the top menu (if logged in as admin, show "관리자" (Admin) + a link to the admin screen)
+5. **Admin screen** (admin only, Section 9 step 7)
+   * Change the shared password (changing it logs out all staff)
+   * Log everyone out (keeps the password, ends only staff sessions)
+   * Change the admin password (after confirming the current admin password)
+   * Login lockout status / unlock
 
-컬러/사이즈/수량 ;
+---
 
-블랙  1개
+## **8. Open Items (TBD — confirm before implementation)**
 
-➡️ 성함 ; 박시연
+* [x] Separator for building the Excel product name — `short-productname-color size` per the Logen template (4.3)
+* [x] Logen template column E code — use existing fields: vendor, or source_room if empty
+* [x] `(memo)` at the end of column D — appended if there is a note (including quantity notes)
+* [x] Export button location — a separate "엑셀 송장 내보내기" button on the order list screen
+* [x] Orders edited after export — not re-exported; just marked "내보냄" (Exported) in the list
+* [x] Sheet structure — `Sheet1` only
+* [ ] Initial brand dictionary data (full list)
+* [x] Permission differences among the 5 users — only the admin can use the admin screen (change shared password, log everyone out); all other features are the same for everyone (3.1-8)
+* [x] Admin — 1 person (me), logs in with the admin password (2026-09-27)
+* [x] Passwords — 6 digits (both shared and admin); lockout — 5 failures from the same IP → 15 minutes (2026-09-27)
+* [x] Per-person accounts — none. All staff use the shared password; the "entered by" field is still typed manually (2026-09-27)
+* [ ] Deployment domain: keep `xxx.vercel.app` or buy a custom domain
+* [ ] Vercel free plan terms (non-commercial use) — decide whether to switch to the Pro plan ($20/month)
 
-➡️ 전번 ; 010 8674\. 8568
+---
 
-➡️ 주소 ; 서울시 송파구
+## **9. Proposed Implementation Order**
 
-올림픽로 145 리센츠상가 지하1층 15-2
-
-티, 블루
-
-부산 연제구 쌍미천로 190 동원맨션 A동 502호
-
-심춘선 01087698178
-
-리더,Pxg  화이트 30 사이즈
-
-이유석
-
-01053525668
-
-서울 강서구 마곡서1로 100
-
-마곡엠밸리6단지
-
-616-1103호
-
-기대 결과 (검증 완료):
-
-| 이름 | 전화번호 | 시/구/번지 | 나머지주소 |
-| ----- | ----- | ----- | ----- |
-| 박시연 | 010-8674-8568 | 서울시 송파구 올림픽로 145 | 리센츠상가 지하1층 15-2 |
-| 심춘선 | 010-8769-8178 | 부산 연제구 쌍미천로 190 | 동원맨션 A동 502호 |
-| 이유석 | 010-5352-5668 | 서울 강서구 마곡서1로 100 | 마곡엠밸리6단지 616-1103호 |
-
-gkarudghksy2k  
-gkarudghksy2k
-
-url  
-https://lnbscxwyjqiotsdpnvgi.supabase.co/rest/v1/
+1. Set up DB schema (orders, brand_dictionary)
+2. Port parsing logic (reuse JS functions from the existing `order-tool.html`)
+3. Order entry screen (paste → review cards → save) — local real-use testing is possible at this point
+4. Dictionary management screen
+5. Order list view/edit/delete + filters
+6. Excel shipping label export (Logen template, unexported orders only, per-day file numbering — 3.1 item 7, 4.3, 4.4)
+7. Login (shared staff password + admin password, failure lockout, 30-day persistence, block all pages and APIs — 3.1-8, 4.5–4.7). — Implemented (2026-09-27)
+8. Deploy (Vercel + Supabase connection)
+9. Real-use testing → incorporate feedback on parsing edge cases
+10. (Phase 2) Staff summary generation
+11. (Phase 2) Duplicate order detection

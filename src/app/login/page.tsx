@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "로그인 · 주문 반자동화" };
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const sp = await searchParams;
   const next = safeNextPath(Array.isArray(sp.next) ? sp.next[0] : sp.next);
-  // 이미 로그인했으면 바로 이동
+  // Redirect immediately if already logged in
   if (await getSession()) redirect(next);
 
   return (

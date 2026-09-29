@@ -1,12 +1,13 @@
--- 주문 반자동화 시스템 초기 스키마 (기획서 4장)
+-- Initial schema for the order semi-automation system (spec Section 4)
 --
--- 접근 방식: 브라우저는 Supabase에 직접 접근하지 않고, Next.js 서버가
--- secret(service_role) 키로만 DB에 접근한다. 따라서 두 테이블 모두 RLS를
--- 켜고 anon/authenticated 용 정책은 만들지 않는다 (= 공개 키로는 읽기/쓰기 불가).
--- 고객 개인정보(이름/전화/주소)가 공개 키로 노출되지 않게 하기 위함.
+-- Access model: the browser never talks to Supabase directly; only the Next.js
+-- server accesses the DB, using the secret (service_role) key. So both tables
+-- have RLS enabled with no anon/authenticated policies (= unreachable with the
+-- public key, for read or write). This keeps customer personal data (name/phone/address)
+-- from ever being exposed through the public key.
 
 -- ---------------------------------------------------------------------------
--- updated_at 자동 갱신 트리거 함수
+-- Trigger function that auto-updates updated_at
 -- ---------------------------------------------------------------------------
 create or replace function public.set_updated_at()
 returns trigger
@@ -22,35 +23,36 @@ $$;
 -- ---------------------------------------------------------------------------
 -- orders
 -- ---------------------------------------------------------------------------
--- 텍스트 컬럼은 null 대신 빈 문자열('')을 기본값으로 둔다.
--- 파싱 결과에서 누락된 항목도 일단 저장할 수 있어야 하고(카드 화면에서 누락 강조),
--- 엑셀 조합 시 null 처리 분기를 줄이기 위함.
+-- Text columns default to an empty string ('') instead of null.
+-- Fields missing from the parsed result still need to be storable (so the card
+-- screen can highlight what's missing), and this avoids extra null-handling
+-- branches when assembling the Excel output.
 create table public.orders (
   id           uuid primary key default gen_random_uuid(),
-  source_room  text not null default '',  -- 출처 지역 단톡방
-  name         text not null default '',  -- 고객 이름
-  phone        text not null default '',  -- 정규화: 010-1234-5678
-  addr1        text not null default '',  -- 시/구/번지 (도로명 주소까지)
-  addr2        text not null default '',  -- 나머지 주소 (건물명/동/호수)
-  brand_raw    text not null default '',  -- 브랜드 원문 (예: AMAZING)
-  brand_short  text not null default '',  -- 확정된 약칭 (매칭 없으면 brand_raw와 동일)
+  source_room  text not null default '',  -- Source regional group chat
+  name         text not null default '',  -- Customer name
+  phone        text not null default '',  -- Normalized: 010-1234-5678
+  addr1        text not null default '',  -- City/district/street number (up to the road-name address)
+  addr2        text not null default '',  -- Rest of the address (building name/unit/floor)
+  brand_raw    text not null default '',  -- Original brand text (e.g. AMAZING)
+  brand_short  text not null default '',  -- Confirmed short form (same as brand_raw if unmatched)
   product_name text not null default '',
   color        text not null default '',
-  size         text not null default '',  -- 없을 수 있음
-  vendor       text not null default '',  -- 거래처명
-  note         text not null default '',  -- 참고사항
-  created_by   text not null default '',  -- 입력한 사람
+  size         text not null default '',  -- May be empty
+  vendor       text not null default '',  -- Vendor/partner name
+  note         text not null default '',  -- Notes
+  created_by   text not null default '',  -- Who entered it
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
 
-comment on table public.orders is '취합된 주문. 엑셀 내보내기: 이름/전화번호/주소(addr1+addr2)/상품명(brand_short-product_name-color[-size])';
+comment on table public.orders is 'Collected orders. Excel export: name/phone/address (addr1+addr2)/product name (brand_short-product_name-color[-size])';
 
--- 목록 화면 기본 정렬 및 날짜 필터
+-- Default sort and date filter for the list screen
 create index orders_created_at_idx on public.orders (created_at desc);
--- 출처 방 필터
+-- Filter by source chat
 create index orders_source_room_idx on public.orders (source_room);
--- 전화번호 검색 + (2차) 같은 날짜·같은 전화번호 중복 감지
+-- Phone search + (phase 2) duplicate detection by same date + same phone
 create index orders_phone_idx on public.orders (phone);
 
 create trigger orders_set_updated_at
@@ -62,8 +64,8 @@ alter table public.orders enable row level security;
 -- ---------------------------------------------------------------------------
 -- brand_dictionary
 -- ---------------------------------------------------------------------------
--- 하나의 약칭에 여러 전체 이름이 매핑될 수 있음 (예: AMAZING, 어메이징 → AMZ).
--- full_name은 대소문자·앞뒤 공백 무시하고 유일해야 함.
+-- Multiple full names can map to the same short form (e.g. AMAZING, 어메이징 → AMZ).
+-- full_name must be unique, ignoring case and surrounding whitespace.
 create table public.brand_dictionary (
   id         uuid primary key default gen_random_uuid(),
   full_name  text not null check (btrim(full_name) <> ''),

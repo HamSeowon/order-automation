@@ -8,7 +8,7 @@ export type AdminOverview = {
   adminPinUpdatedAt: string | null;
   memberSessions: number;
   adminSessions: number;
-  /** locked: 서버에서 계산한 현재 잠김 여부 */
+  /** locked: whether it's currently locked, as computed by the server */
   attempts: { key: string; failed_count: number; locked_until: string | null; updated_at: string; locked: boolean }[];
 };
 

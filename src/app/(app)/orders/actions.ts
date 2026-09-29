@@ -6,7 +6,7 @@ import { authorize } from "@/lib/auth";
 import type { Order, OrderUpdate } from "@/lib/database.types";
 import { FIELD_LABELS, GROUP_SHARED_FIELDS, missingFields, toOrderInsert } from "@/lib/orders";
 
-// Server Action 은 직접 POST 로도 호출할 수 있으므로 모든 함수가 먼저 authorize() 로 로그인을 확인한다.
+// Server Actions can also be called directly via POST, so every function checks login with authorize() first.
 
 const MAX_BATCH = 200;
 
@@ -50,9 +50,9 @@ export type UpdateOrderResult =
   | { ok: false; error: string; conflict?: boolean };
 
 /**
- * 주문 1건 수정.
- * - expectedUpdatedAt: 화면에 불러왔을 때의 updated_at. 그 사이 다른 사람이 고쳤으면 덮어쓰지 않고 conflict 반환 (동시 사용 대비)
- * - applyToGroup: true 면 같은 order_group_id 의 다른 주문에도 이름·전화·주소 등 공유 필드를 반영
+ * Update one order.
+ * - expectedUpdatedAt: the updated_at value from when the screen loaded the order. If someone else changed it in the meantime, don't overwrite — return a conflict instead (handles concurrent use)
+ * - applyToGroup: if true, also apply shared fields (name/phone/address/etc.) to other orders with the same order_group_id
  */
 export async function updateOrder(
   id: unknown,
@@ -66,7 +66,7 @@ export async function updateOrder(
   if (typeof expectedUpdatedAt !== "string" || !expectedUpdatedAt) return { ok: false, error: "잘못된 요청입니다." };
 
   const row = toOrderInsert(input);
-  // 그룹은 목록 화면에서 바꾸지 않는다
+  // The group is not changed from the list screen
   delete row.order_group_id;
   const missing = missingFields(row);
   if (missing.length) {

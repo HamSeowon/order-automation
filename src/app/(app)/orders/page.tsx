@@ -15,7 +15,7 @@ import OrdersTable from "./orders-table";
 
 export const metadata: Metadata = { title: "주문 목록 · 주문 반자동화" };
 
-/** 내보내기 패널용: 아직 안 내보낸 주문 수 + 다음 기본 파일 이름 */
+/** For the export panel: count of orders not yet exported + the next default file name */
 async function loadExportInfo(): Promise<{ pendingCount: number; defaultFileName: string; unavailable: string | null }> {
   const fallbackName = defaultExportFileName(kstDate(), 1);
   try {
@@ -45,7 +45,7 @@ async function loadOrders(f: OrderFilters): Promise<{ orders: Order[]; total: nu
       .from("orders")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
-      // 같은 시각에 저장된 묶음 카드들이 붙어서 보이도록
+      // So grouped cards saved at the same instant appear next to each other
       .order("order_group_id")
       .order("id");
     const range = kstRange(f.from, f.to);
@@ -79,7 +79,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
   const today = kstDate();
   const hasFilter = !!(filters.from || filters.to || filters.room || filters.q || filters.status);
 
-  // 빠른 날짜 선택 (다른 필터는 유지)
+  // Quick date presets (other filters are kept as-is)
   const preset = (from: string, to: string) => `/orders${filtersToQuery({ ...filters, from, to, page: 1 })}`;
 
   return (

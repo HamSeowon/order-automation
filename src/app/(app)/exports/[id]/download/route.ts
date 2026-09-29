@@ -5,9 +5,9 @@ import { buildInvoiceWorkbook } from "@/lib/invoice-xlsx";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 내보내기 1건의 송장 파일. 처음 받기와 다시 받기 모두 이 경로 — 항상 그 내보내기에 들어간 주문의 현재 내용으로 만든다 */
+/** The shipping-label file for one export. Both the first download and re-downloads use this route — always built from the current content of the orders in that export */
 export async function GET(_req: Request, ctx: RouteContext<"/exports/[id]/download">) {
-  // 고객 개인정보가 담긴 파일 — 로그인 필수
+  // This file contains customer personal data — login is required
   const denied = await authorize();
   if (denied) return new Response(denied, { status: 401 });
 
@@ -23,7 +23,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/exports/[id]/downlo
     .from("orders")
     .select("*")
     .eq("export_id", id)
-    // 주문이 들어온 순서대로, 같은 메시지의 상품은 붙여서
+    // In the order orders arrived, keeping products from the same message together
     .order("created_at")
     .order("order_group_id")
     .order("id");

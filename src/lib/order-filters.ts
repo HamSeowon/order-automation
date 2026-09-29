@@ -1,19 +1,19 @@
-// 주문 목록 필터 (URL 검색 파라미터 ↔ DB 조건). 순수 함수만 둔다.
-// 날짜는 한국 시간(KST, UTC+9) 기준 — "오늘 들어온 주문"이 자정 기준으로 맞게 잘리도록.
+// Order list filters (URL search params ↔ DB conditions). Pure functions only.
+// Dates are in Korea time (KST, UTC+9) — so "orders received today" is cut off correctly at midnight.
 
 import { normalizePhone } from "@/lib/parser";
 
 export type OrderFilters = {
-  /** YYYY-MM-DD (KST, 포함) */
+  /** YYYY-MM-DD (KST, inclusive) */
   from: string;
-  /** YYYY-MM-DD (KST, 포함) */
+  /** YYYY-MM-DD (KST, inclusive) */
   to: string;
   room: string;
-  /** 이름/전화/주소/상품 검색어 */
+  /** Search term across name/phone/address/product */
   q: string;
-  /** 송장 내보내기 상태: "" 전체 / pending 아직 안 내보냄 / exported 내보냄 */
+  /** Invoice-export status: "" all / pending not yet exported / exported already exported */
   status: ExportStatus;
-  /** 1부터 */
+  /** 1-based */
   page: number;
 };
 
@@ -45,7 +45,7 @@ export function parseFilters(sp: SearchParams): OrderFilters {
   };
 }
 
-/** 필터 → URL 쿼리 문자열 (빈 값·1페이지는 생략) */
+/** Filters → URL query string (empty values and page 1 are omitted) */
 export function filtersToQuery(f: Partial<OrderFilters>): string {
   const p = new URLSearchParams();
   if (f.from) p.set("from", f.from);
@@ -64,7 +64,7 @@ const addDays = (ymd: string, days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-/** KST 날짜 범위 → created_at 조건 (to 는 다음 날 0시 미만) */
+/** KST date range → created_at condition (to is exclusive of the following day's midnight) */
 export function kstRange(from: string, to: string): { gte?: string; lt?: string } {
   return {
     ...(from && { gte: `${from}T00:00:00+09:00` }),
@@ -72,33 +72,33 @@ export function kstRange(from: string, to: string): { gte?: string; lt?: string 
   };
 }
 
-/** 지금 기준 KST 날짜 (YYYY-MM-DD). daysAgo 만큼 이전 날짜 */
+/** Current KST date (YYYY-MM-DD). daysAgo shifts it that many days into the past */
 export function kstDate(now: Date = new Date(), daysAgo = 0): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   return addDays(kst.toISOString().slice(0, 10), -daysAgo);
 }
 
 /**
- * 검색어를 PostgREST or() 필터에 안전하게 넣을 수 있게 정리.
- * or() 문법에서 의미가 있는 , ( ) 와 ilike 와일드카드 % * _ 및 역슬래시·따옴표를 제거한다.
+ * Clean up a search term so it's safe to put inside a PostgREST or() filter.
+ * Strips the , ( ) characters that are meaningful in or() syntax, ilike wildcards % * _, and backslashes/quotes.
  */
 export function sanitizeSearch(q: string): string {
   return q.replace(/[,()%*_\\"']/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
- * 전화번호 검색어 → 저장 형식(010-1234-5678)에 맞춘 검색 패턴.
- * 숫자만 입력해도 찾을 수 있게: 전체 번호는 정규화, 8자리는 가운데·끝 4자리, 그 외는 그대로.
+ * Phone search term → a pattern matching the stored format (010-1234-5678).
+ * So digits-only input still finds matches: normalize full numbers, split 8-digit input into middle+last 4, leave everything else as-is.
  */
 export function phoneSearchTerm(q: string): string {
   const digits = q.replace(/\D/g, "");
-  if (!digits || digits.length !== q.replace(/[\s-]/g, "").length) return q; // 숫자 외 문자가 있으면 가공 안 함
+  if (!digits || digits.length !== q.replace(/[\s-]/g, "").length) return q; // leave untouched if it contains non-digit characters
   if (digits.length === 10 || digits.length === 11) return normalizePhone(digits);
   if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
   return digits;
 }
 
-/** 검색어 → PostgREST or() 조건 문자열 (검색어가 비면 null) */
+/** Search term → PostgREST or() condition string (null if the term is empty) */
 export function searchOrCondition(rawQ: string): string | null {
   const q = sanitizeSearch(rawQ);
   if (!q) return null;

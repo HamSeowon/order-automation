@@ -2,7 +2,7 @@ import type { OrderInsert } from "@/lib/database.types";
 import { normalizePhone, segmentOrders, splitProducts } from "@/lib/parser";
 import { suggestItemFields, type DictEntry } from "@/lib/product";
 
-/** 카드/저장 단계에서 사람이 편집하는 주문 필드 */
+/** Order fields a person edits at the card/save stage */
 export const ORDER_FIELDS = [
   "source_room", "name", "phone", "addr1", "addr2", "brand_raw", "brand_short",
   "product_name", "color", "size", "vendor", "note", "created_by",
@@ -13,7 +13,7 @@ export type OrderDraft = Record<OrderField, string>;
 
 export const REQUIRED_FIELDS = ["name", "phone", "addr1"] as const satisfies readonly OrderField[];
 
-/** 같은 메시지(order_group_id)에서 나온 카드들이 공유하는 고객 정보. 한 카드에서 고치면 묶음 전체에 반영 */
+/** Customer fields shared by all cards from the same message (order_group_id). Editing one card updates the whole group */
 export const GROUP_SHARED_FIELDS: readonly OrderField[] = ["source_room", "name", "phone", "addr1", "addr2", "vendor", "created_by"];
 
 export const FIELD_LABELS: Record<OrderField, string> = {
@@ -38,8 +38,8 @@ export const emptyOrderDraft = (source_room = "", created_by = ""): OrderDraft =
 });
 
 /**
- * 송장 "상품명" 조합 (기획서 4.3, 로젠 양식 기준): 약칭-상품명-색상 사이즈.
- * 브랜드·상품명·색상 사이는 "-", 사이즈 앞은 공백. 빈 값은 건너뛴다.
+ * Build the invoice "product name" (spec 4.3, based on the Logen template): short-form-productname-color size.
+ * Brand/product name/color are joined with "-", size is preceded by a space. Empty values are skipped.
  */
 export function excelProductName(o: Pick<OrderDraft, "brand_short" | "brand_raw" | "product_name" | "color" | "size">): string {
   const main = [o.brand_short || o.brand_raw, o.product_name, o.color].map((s) => s?.trim()).filter(Boolean).join("-");
@@ -47,16 +47,16 @@ export function excelProductName(o: Pick<OrderDraft, "brand_short" | "brand_raw"
 }
 
 export type ParsedDraft = {
-  /** 같은 메시지에서 나온 카드는 같은 값 (orders.order_group_id) */
+  /** Cards from the same message share this value (orders.order_group_id) */
   groupId: string;
-  /** 이 메시지의 원문 (대조용, 묶음 안 카드들이 공유) */
+  /** Raw text of this message (for cross-checking; shared by the cards in the group) */
   raw: string;
   fields: OrderDraft;
 };
 
 /**
- * 붙여넣은 원문 → 카드 초안들.
- * 메시지(주문) 하나에 상품이 여러 개면 상품 수만큼 카드를 만들고, 이름/전화/주소 등은 모든 카드에 복사한다.
+ * Pasted raw text → card drafts.
+ * If one message (order) has multiple products, one card is created per product, and the name/phone/address etc. are copied onto every card.
  */
 export function draftsFromText(
   text: string,
@@ -98,7 +98,7 @@ export function missingFields(o: Partial<OrderDraft>): OrderField[] {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 클라이언트에서 온 값을 저장 가능한 형태로 정리 (허용된 필드만, 공백 제거, 전화번호 정규화) */
+/** Clean up client-provided values into a savable shape (only allowed fields, trimmed, phone normalized) */
 export function toOrderInsert(input: unknown): OrderInsert {
   const src = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const out: OrderInsert = {};
@@ -107,9 +107,9 @@ export function toOrderInsert(input: unknown): OrderInsert {
     out[f] = typeof v === "string" ? v.trim().slice(0, 500) : "";
   }
   out.phone = out.phone ? normalizePhone(out.phone) : "";
-  // 기획서 4.1: 매칭 안 되면 brand_short 는 brand_raw 와 동일하게 저장
+  // Spec 4.1: if there's no dictionary match, store brand_short the same as brand_raw
   if (!out.brand_short) out.brand_short = out.brand_raw;
-  // 그룹 ID가 없거나 형식이 틀리면 DB 기본값(새 그룹)을 쓴다
+  // If the group ID is missing or malformed, fall back to the DB default (a new group)
   if (typeof src.order_group_id === "string" && UUID_RE.test(src.order_group_id)) {
     out.order_group_id = src.order_group_id;
   }
