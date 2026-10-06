@@ -43,3 +43,6 @@ next-env.d.ts
 
 # customer personal data (KakaoTalk exports) — never commit
 /private/
+
+# working notes that quote real customer names — keep local
+/improvement-prompt.md

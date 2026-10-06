@@ -284,7 +284,7 @@ function OrderCardView({
   const label = (o: { card: OrderCard; index: number }) => `#${o.index} ${o.card.shared.name || "(이름 없음)"}`;
 
   const input = (field: SharedField) => (
-    <label className="flex flex-col text-xs">
+    <label className="flex min-w-0 flex-col text-xs">
       <span className={`mb-0.5 ${missing.has(field) ? "font-semibold text-red-600" : "text-gray-600"}`}>
         {FIELD_LABELS[field]}
         {missing.has(field) && " · 필수"}
@@ -292,7 +292,7 @@ function OrderCardView({
       <input
         value={f[field]}
         onChange={(e) => onShared(field, e.target.value)}
-        className={`rounded border px-2 py-1.5 text-sm ${missing.has(field) ? "border-red-400 bg-red-50" : "border-gray-300"}`}
+        className={`w-full min-w-0 rounded border px-2 py-1.5 text-sm ${missing.has(field) ? "border-red-400 bg-red-50" : "border-gray-300"}`}
       />
     </label>
   );
@@ -357,8 +357,10 @@ function OrderCardView({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-[1fr_16rem]">
-        <div className="space-y-3">
+      {/* minmax(0, …) / min-w-0: grid and flex children default to min-width: auto, so an <input>'s intrinsic width
+          would push the column (and the card) wider instead of letting the fields shrink */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_15rem]">
+        <div className="min-w-0 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             {input("name")}
             {input("phone")}
@@ -462,9 +464,10 @@ function OrderCardView({
           )}
         </div>
         {card.raw && (
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
-            {card.raw}
-          </pre>
+          <section className="min-w-0 self-start rounded border border-gray-200 bg-gray-50">
+            <h3 className="border-b border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600">주문 원문</h3>
+            <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-2 text-xs text-gray-700">{card.raw}</pre>
+          </section>
         )}
       </div>
     </article>
@@ -496,7 +499,7 @@ function ItemRow({
   const needsProductName = !item.product_name.trim();
 
   const field = (name: ItemField, warn = false) => (
-    <label className="flex flex-col text-xs">
+    <label className="flex min-w-0 flex-col text-xs">
       <span className={`mb-0.5 ${warn ? "font-semibold text-amber-700" : "text-gray-600"}`}>
         {ITEM_LABELS[name]}
         {warn && " · 입력 필요"}
@@ -505,14 +508,14 @@ function ItemRow({
         value={item[name]}
         list={name === "product_name" ? RECENT_PRODUCTS_LIST_ID : undefined}
         onChange={(e) => onChange(name, e.target.value)}
-        className={`rounded border px-2 py-1.5 text-sm ${warn ? "border-amber-400 bg-amber-50" : "border-gray-300"}`}
+        className={`w-full min-w-0 rounded border px-2 py-1.5 text-sm ${warn ? "border-amber-400 bg-amber-50" : "border-gray-300"}`}
       />
     </label>
   );
 
   return (
     <div className="space-y-1 border-t border-gray-100 pt-2 first:border-t-0 first:pt-0">
-      <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_1fr_1.5fr_1fr_0.7fr_1fr_auto]">
+      <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[repeat(2,minmax(0,1fr))_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1fr)_auto]">
         {field("brand_raw")}
         {field("brand_short")}
         {field("product_name", needsProductName)}
@@ -523,7 +526,7 @@ function ItemRow({
           onClick={onRemove}
           disabled={!canRemove}
           title={canRemove ? "이 상품 빼기" : "상품이 하나뿐입니다 (카드를 삭제하세요)"}
-          className="rounded border border-gray-300 px-2 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-30"
+          className="whitespace-nowrap rounded border border-gray-300 px-2 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-30"
         >
           빼기
         </button>
