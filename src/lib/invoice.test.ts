@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
-  contentDisposition, defaultExportFileName, invoiceRow, sanitizeExportFileName, type InvoiceSource,
+  contentDisposition, defaultExportFileName, invoiceRow, invoiceRows, sanitizeExportFileName, type InvoiceSource,
 } from "./invoice";
 import { buildInvoiceWorkbook } from "./invoice-xlsx";
 import { excelProductName } from "./orders";
@@ -105,5 +105,48 @@ describe("buildInvoiceWorkbook", () => {
   it("an empty sheet when there are no orders", () => {
     const wb = XLSX.read(buildInvoiceWorkbook([]), { type: "array" });
     expect(XLSX.utils.sheet_to_json(wb.Sheets.Sheet1, { header: 1 })).toEqual([]);
+  });
+});
+
+describe("n합배: one label row per order group", () => {
+  const g1 = "11111111-1111-4111-8111-111111111111";
+  const g2 = "22222222-2222-4222-8222-222222222222";
+  const item = (patch: Partial<InvoiceSource>): InvoiceSource => ({ ...base, order_group_id: g1, ...patch });
+  const pants = item({ brand_short: "지포", brand_raw: "", product_name: "팬츠", color: "블랙", size: "66" });
+  const skirt = item({ brand_short: "말본", brand_raw: "", product_name: "스커트", color: "화이트", size: "55" });
+
+  it("2 products of one group → 1 row, D = '2합배-' + product names joined by ', '", () => {
+    expect(invoiceRows([pants, skirt])).toEqual([
+      ["홍길동 (굿1)", "010 1234 5678", "경기 양주시 옥정동로3길 38, 301호", "2합배-지포-팬츠-블랙 66, 말본-스커트-화이트 55", "굿1"],
+    ]);
+  });
+
+  it("a single product keeps the old format", () => {
+    expect(invoiceRows([pants])).toEqual([invoiceRow(pants)]);
+    expect(invoiceRows([pants])[0][3]).toBe("지포-팬츠-블랙 66");
+  });
+
+  it("notes of the group are joined at the end once (shared note not repeated)", () => {
+    const rows = invoiceRows([
+      { ...pants, note: "부재시 경비실 / 수량 2개" },
+      { ...skirt, note: "부재시 경비실" },
+    ]);
+    expect(rows[0][3]).toBe("2합배-지포-팬츠-블랙 66, 말본-스커트-화이트 55  (부재시 경비실 / 수량 2개)");
+  });
+
+  it("groups keep the order they first appear in; rows without a group stand alone", () => {
+    const other = item({ order_group_id: g2, name: "김영희", product_name: "모자", color: "", size: "", brand_short: "" });
+    const lone = { ...base, order_group_id: undefined, name: "박철수" };
+    const rows = invoiceRows([pants, other, skirt, lone]);
+    expect(rows.map((r) => [r[0], r[3]])).toEqual([
+      ["홍길동 (굿1)", "2합배-지포-팬츠-블랙 66, 말본-스커트-화이트 55"],
+      ["김영희 (굿1)", "피피-모자"],
+      ["박철수 (굿1)", "피-신 아워글래스핏 카라-블랙 M"],
+    ]);
+  });
+
+  it("the workbook has one row per group", () => {
+    const wb = XLSX.read(buildInvoiceWorkbook([pants, skirt]), { type: "array" });
+    expect(XLSX.utils.sheet_to_json(wb.Sheets.Sheet1, { header: 1 })).toEqual(invoiceRows([pants, skirt]));
   });
 });

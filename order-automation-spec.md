@@ -47,6 +47,7 @@ This is the planning document for Claude Code to reference when starting impleme
    * Handle both labeled formats (e.g. `➡️ 성함 ;`) and unlabeled formats (see the parsing logic in Section 5)
 2. **Source chat indicator**
    * Select/record which regional group chat the order came from (`source_room` field)
+   * **Changed 2026-10-06**: orders are now pasted from one combined chat, and the source is the tag on the last line of each order (→ `vendor`). The "출처 방" input was removed; new orders store `source_room` as an empty string (legacy column kept for existing data)
 3. **Per-field review and edit screen**
    * Show parsing results as cards; a person reviews and can edit them
    * Visually flag missing required fields (name / phone / address)
@@ -73,7 +74,7 @@ This is the planning document for Claude Code to reference when starting impleme
    * **Stay logged in for 30 days** (30 days from login time; cookie + DB session). **Logout button** (top menu)
    * **Changing the shared password immediately ends all existing staff logins** (used when a staff member leaves). The admin login stays active
    * **Without logging in, no page or API is accessible (including Server Actions and the label download)** — pages and download URLs (GET) redirect to the login screen (and return to the original URL after login); other requests get 401. First-line block in Next.js `proxy` + re-check the session inside every Server Action / Route Handler (do not rely on proxy alone). Admin features require an admin session
-   * **Keep the "entered by" field** — who entered an order is still typed directly into the "입력자" (Entered by) field on the order entry screen (remembered by the browser), as it is now. Existing orders' "entered by" records stay unchanged
+   * ~~**Keep the "entered by" field**~~ (removed 2026-10-06: the "입력자" input is gone and new orders store `created_by` as an empty string; existing records stay unchanged) — who entered an order is still typed directly into the "입력자" (Entered by) field on the order entry screen (remembered by the browser), as it is now. Existing orders' "entered by" records stay unchanged
    * Security note: 6 digits give only 1 million combinations, so per-IP lockout alone cannot fully stop automated attacks using many IPs. Since the site holds customers' personal data, check the login-failure records occasionally after deployment and, if needed, increase the number of digits or add a global failure limit
 
 ### **3.2 Second phase (after the MVP is stable)**
@@ -116,7 +117,7 @@ This is the planning document for Claude Code to reference when starting impleme
 | exported_at | timestamptz, null | Time exported to Excel. null means not yet exported (applied) |
 | export_id | uuid, null | Which export file it went into → `exports.id` (applied) |
 
-> Even after login was introduced, created_by remains **a name string typed directly on the order entry screen** (since there are no per-person accounts). Existing records stay as they are.
+> Since 2026-10-06, source_room and created_by are legacy columns: no longer entered on screen, saved as empty strings for new orders, kept (not dropped) for existing data.
 
 ### **4.2 `brand_dictionary` table**
 
@@ -133,7 +134,7 @@ Analysis of the existing template `로젠(파일접수).xlsx` (2026-09-26):
 * One sheet, `Sheet1`, with **5 columns (A–E)** and **no header row** — order data starts directly on row 1
 * All cells are text (General format). Column widths: A 15 / B 16.88 / C 67.38 / D 57.5 / E 9.63
 * The original also has an empty `Sheet2`, but **only create `Sheet1`** (decided 2026-09-26)
-* 1 order (1 product) = 1 row
+* 1 parcel = 1 row: products of one order group (order_group_id, "n합배") share one row (changed 2026-10-06; previously 1 product = 1 row)
 
 | Column | Format seen in the template | Mapping |
 | ----- | ----- | ----- |
@@ -141,6 +142,7 @@ Analysis of the existing template `로젠(파일접수).xlsx` (2026-09-26):
 | B | `010 1234 5678` (**spaces instead of hyphens**) | orders.phone with `-` replaced by spaces |
 | C | `City/district road-name number, rest of address` (separated by **comma + space**) | orders.addr1 + ", " + orders.addr2 (addr1 only if addr2 is empty) |
 | D | `short-productname-color size` + sometimes `  (memo)` | brand_short + "-" + product_name + "-" + color + (" " + size if size) + ("  (" + note + ")" if note) |
+| D (n합배, 2026-10-06) | `n합배-` + products joined by `, ` | "n합배-" + each product's D value (without notes) joined by ", " + ("  (" + the group's distinct notes joined by " / " + ")" if any). A single product keeps the format above |
 | E | Short code (e.g. 굿1) | Uses existing fields (no new column): orders.vendor, or orders.source_room if empty |
 
 > Product name separator confirmed: `-` between brand, product name, and color; **a space before the size** (differs from the earlier assumption that size also used `-`).

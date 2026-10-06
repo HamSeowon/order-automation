@@ -9,7 +9,6 @@ import {
   PAGE_SIZE, filtersToQuery, kstDate, kstRange, parseFilters, searchOrCondition, type OrderFilters,
 } from "@/lib/order-filters";
 import { defaultExportFileName } from "@/lib/invoice";
-import { loadRooms } from "./data";
 import ExportPanel from "./export-panel";
 import OrdersTable from "./orders-table";
 
@@ -38,7 +37,7 @@ async function loadExportInfo(): Promise<{ pendingCount: number; defaultFileName
   }
 }
 
-async function loadOrders(f: OrderFilters): Promise<{ orders: Order[]; total: number; rooms: string[]; loadError: string | null }> {
+async function loadOrders(f: OrderFilters): Promise<{ orders: Order[]; total: number; loadError: string | null }> {
   try {
     const supabase = createServerSupabase();
     let query = supabase
@@ -51,21 +50,17 @@ async function loadOrders(f: OrderFilters): Promise<{ orders: Order[]; total: nu
     const range = kstRange(f.from, f.to);
     if (range.gte) query = query.gte("created_at", range.gte);
     if (range.lt) query = query.lt("created_at", range.lt);
-    if (f.room) query = query.eq("source_room", f.room);
     if (f.status === "pending") query = query.is("exported_at", null);
     if (f.status === "exported") query = query.not("exported_at", "is", null);
     const search = searchOrCondition(f.q);
     if (search) query = query.or(search);
 
     const start = (f.page - 1) * PAGE_SIZE;
-    const [{ data, count, error }, rooms] = await Promise.all([
-      query.range(start, start + PAGE_SIZE - 1),
-      loadRooms(supabase),
-    ]);
-    if (error) return { orders: [], total: 0, rooms, loadError: error.message };
-    return { orders: data ?? [], total: count ?? 0, rooms, loadError: null };
+    const { data, count, error } = await query.range(start, start + PAGE_SIZE - 1);
+    if (error) return { orders: [], total: 0, loadError: error.message };
+    return { orders: data ?? [], total: count ?? 0, loadError: null };
   } catch (e) {
-    return { orders: [], total: 0, rooms: [], loadError: e instanceof Error ? e.message : "알 수 없는 오류" };
+    return { orders: [], total: 0, loadError: e instanceof Error ? e.message : "알 수 없는 오류" };
   }
 }
 
@@ -73,11 +68,10 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
   await connection();
   await requirePageSession();
   const filters = parseFilters(await searchParams);
-  const [{ orders, total, rooms, loadError }, exportInfo] = await Promise.all([loadOrders(filters), loadExportInfo()]);
+  const [{ orders, total, loadError }, exportInfo] = await Promise.all([loadOrders(filters), loadExportInfo()]);
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const roomOptions = filters.room && !rooms.includes(filters.room) ? [filters.room, ...rooms] : rooms;
   const today = kstDate();
-  const hasFilter = !!(filters.from || filters.to || filters.room || filters.q || filters.status);
+  const hasFilter = !!(filters.from || filters.to || filters.q || filters.status);
 
   // Quick date presets (other filters are kept as-is)
   const preset = (from: string, to: string) => `/orders${filtersToQuery({ ...filters, from, to, page: 1 })}`;
@@ -98,13 +92,6 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
           <input type="date" name="to" defaultValue={filters.to} className="rounded border border-gray-300 px-2 py-1.5" />
         </label>
         <label className="flex flex-col">
-          <span className="mb-1 text-xs text-gray-600">출처 방</span>
-          <select name="room" defaultValue={filters.room} className="w-44 rounded border border-gray-300 px-2 py-1.5">
-            <option value="">전체</option>
-            {roomOptions.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col">
           <span className="mb-1 text-xs text-gray-600">송장</span>
           <select name="status" defaultValue={filters.status} className="rounded border border-gray-300 px-2 py-1.5">
             <option value="">전체</option>
@@ -113,7 +100,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
           </select>
         </label>
         <label className="flex flex-col">
-          <span className="mb-1 text-xs text-gray-600">검색 (이름·전화·주소·상품)</span>
+          <span className="mb-1 text-xs text-gray-600">검색 (이름·전화·주소·상품·거래처)</span>
           <input
             type="search"
             name="q"

@@ -11,7 +11,8 @@
     "db:push": "supabase db push",
     "db:types": "supabase gen types typescript --linked > src/lib/database.types.ts",
     "test": "vitest run",
-    "set-password": "node --env-file=.env.local --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/set-password.mts"
+    "set-password": "node --env-file=.env.local --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/set-password.mts",
+    "accuracy": "node --import ./scripts/ts-paths.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/accuracy.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
@@ -22,6 +23,7 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24.19.0",
     "@types/react": "^19",

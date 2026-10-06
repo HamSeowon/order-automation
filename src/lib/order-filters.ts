@@ -8,8 +8,7 @@ export type OrderFilters = {
   from: string;
   /** YYYY-MM-DD (KST, inclusive) */
   to: string;
-  room: string;
-  /** Search term across name/phone/address/product */
+  /** Search term across name/phone/address/product/vendor tag */
   q: string;
   /** Invoice-export status: "" all / pending not yet exported / exported already exported */
   status: ExportStatus;
@@ -38,7 +37,6 @@ export function parseFilters(sp: SearchParams): OrderFilters {
   return {
     from: validDate(first(sp.from).trim()),
     to: validDate(first(sp.to).trim()),
-    room: first(sp.room).trim().slice(0, 100),
     q: first(sp.q).trim().slice(0, 50),
     status: EXPORT_STATUSES.find((s) => s === first(sp.status)) ?? "",
     page: Number.isFinite(page) && page > 0 ? page : 1,
@@ -50,7 +48,6 @@ export function filtersToQuery(f: Partial<OrderFilters>): string {
   const p = new URLSearchParams();
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
-  if (f.room) p.set("room", f.room);
   if (f.q) p.set("q", f.q);
   if (f.status) p.set("status", f.status);
   if (f.page && f.page > 1) p.set("page", String(f.page));
@@ -111,5 +108,6 @@ export function searchOrCondition(rawQ: string): string | null {
     `product_name.ilike.*${q}*`,
     `brand_raw.ilike.*${q}*`,
     `brand_short.ilike.*${q}*`,
+    `vendor.ilike.*${q}*`,
   ].join(",");
 }
