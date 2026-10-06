@@ -7,6 +7,7 @@ import {
   FIELD_LABELS, GROUP_SHARED_FIELDS, ORDER_FIELDS, excelProductName, missingFields,
   type OrderDraft, type OrderField,
 } from "@/lib/orders";
+import { invoiceCode } from "@/lib/invoice";
 import { deleteOrder, updateOrder } from "./actions";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -32,13 +33,11 @@ export default function OrdersTable({ orders }: { orders: Order[] }) {
         <thead className="bg-gray-50 text-left text-xs text-gray-600">
           <tr>
             <th className="px-3 py-2 font-medium">등록</th>
-            <th className="px-3 py-2 font-medium">출처 방</th>
             <th className="px-3 py-2 font-medium">이름</th>
             <th className="px-3 py-2 font-medium">전화번호</th>
             <th className="px-3 py-2 font-medium">주소</th>
             <th className="px-3 py-2 font-medium">상품명 (송장)</th>
             <th className="px-3 py-2 font-medium">참고</th>
-            <th className="px-3 py-2 font-medium">입력자</th>
             <th className="w-32 px-3 py-2" />
           </tr>
         </thead>
@@ -110,12 +109,10 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
     );
     return (
       <tr className={`${rowBorder} ${groupBorder} bg-blue-50/40`}>
-        <td colSpan={9} className="space-y-3 px-3 py-3">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <td colSpan={7} className="space-y-3 px-3 py-3">
+          <div className="grid grid-cols-2 gap-2">
             {field("name")}
             {field("phone")}
-            {field("source_room")}
-            {field("created_by")}
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             {field("addr1")}
@@ -144,7 +141,7 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
           {inGroup && (
             <label className="flex items-center gap-2 text-xs text-gray-700">
               <input type="checkbox" checked={applyToGroup} onChange={(e) => setApplyToGroup(e.target.checked)} />
-              같은 묶음의 다른 주문 {groupSize - 1}건에도 이름·전화·주소·출처 방·거래처·입력자(⧉ 표시)를 똑같이 반영
+              같은 묶음의 다른 주문 {groupSize - 1}건에도 이름·전화·주소·거래처(⧉ 표시)를 똑같이 반영
             </label>
           )}
           {error && <ErrorLine error={error} onRefresh={() => router.refresh()} />}
@@ -179,7 +176,7 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
         <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600">
           {dateFormat.format(new Date(order.created_at))}
           {inGroup && !continuesGroup && (
-            <span className="ml-1 rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700">묶음 {groupSize}</span>
+            <span className="ml-1 rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700">{groupSize}합배</span>
           )}
           {order.exported_at && (
             <span
@@ -190,7 +187,6 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
             </span>
           )}
         </td>
-        <td className="px-3 py-2">{order.source_room}</td>
         <td className="whitespace-nowrap px-3 py-2 font-medium">{order.name}</td>
         <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{order.phone}</td>
         <td className="px-3 py-2">
@@ -199,9 +195,9 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
         </td>
         <td className="px-3 py-2 font-mono text-xs">{excelProductName(order)}</td>
         <td className="px-3 py-2 text-xs text-gray-600">
-          {[order.vendor && `거래처: ${order.vendor}`, order.note].filter(Boolean).join(" · ")}
+          {/* invoiceCode: vendor, or the legacy source_room for orders saved before tags existed — same code as the Excel E column */}
+          {[invoiceCode(order) && `거래처: ${invoiceCode(order)}`, order.note].filter(Boolean).join(" · ")}
         </td>
-        <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600">{order.created_by}</td>
         <td className="whitespace-nowrap px-3 py-2 text-right">
           <button
             onClick={() => setEditing(true)}
@@ -221,7 +217,7 @@ function OrderRow({ order, groupSize, continuesGroup }: { order: Order; groupSiz
       </tr>
       {error && (
         <tr className={groupBorder}>
-          <td colSpan={9} className="px-3 pb-2">
+          <td colSpan={7} className="px-3 pb-2">
             <ErrorLine error={error} onRefresh={() => router.refresh()} />
           </td>
         </tr>

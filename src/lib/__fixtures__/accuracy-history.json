@@ -1,0 +1,222 @@
+[
+  {
+    "label": "기준(0단계 후)",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 26.3,
+      "name": 65,
+      "phone": 95,
+      "addr1": 48.8,
+      "addr2": 46.3,
+      "vendor": 3.8,
+      "brand_short": 86.7,
+      "color": 74.1,
+      "size": 81.2,
+      "overall": 59.2,
+      "file_orders": 805,
+      "file_complete": 48.3,
+      "file_excluded": 0,
+      "holdout_split": 16,
+      "holdout_name": 80,
+      "holdout_phone": 96,
+      "holdout_addr1": 64,
+      "holdout_addr2": 56,
+      "holdout_vendor": 0,
+      "holdout_brand_short": 90,
+      "holdout_color": 62.1,
+      "holdout_size": 67.9,
+      "holdout_overall": 59.9
+    }
+  },
+  {
+    "label": "1단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 26.3,
+      "name": 65,
+      "phone": 95,
+      "addr1": 48.8,
+      "addr2": 46.3,
+      "vendor": 3.8,
+      "brand_short": 86.7,
+      "color": 74.1,
+      "size": 81.2,
+      "overall": 59.2,
+      "file_orders": 886,
+      "file_complete": 57.1,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "2단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 83.8,
+      "name": 66.3,
+      "phone": 95,
+      "addr1": 48.8,
+      "addr2": 46.3,
+      "vendor": 85,
+      "brand_short": 88.9,
+      "color": 76.5,
+      "size": 84.7,
+      "overall": 75.3,
+      "file_orders": 840,
+      "file_complete": 61.2,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "3단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 83.8,
+      "name": 67.5,
+      "phone": 95,
+      "addr1": 48.8,
+      "addr2": 46.3,
+      "vendor": 85,
+      "brand_short": 88.9,
+      "color": 76.5,
+      "size": 84.7,
+      "overall": 75.4,
+      "file_orders": 846,
+      "file_complete": 61.5,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "4단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 87.5,
+      "name": 97.5,
+      "phone": 100,
+      "addr1": 62.5,
+      "addr2": 58.8,
+      "vendor": 88.8,
+      "brand_short": 88.9,
+      "color": 77.6,
+      "size": 87.1,
+      "overall": 83.2,
+      "file_orders": 831,
+      "file_complete": 74.2,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "5단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 100,
+      "name": 100,
+      "phone": 100,
+      "addr1": 100,
+      "addr2": 100,
+      "vendor": 100,
+      "brand_short": 91.1,
+      "color": 81.2,
+      "size": 87.1,
+      "overall": 95.3,
+      "file_orders": 834,
+      "file_complete": 86.5,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "6단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 100,
+      "name": 100,
+      "phone": 100,
+      "addr1": 100,
+      "addr2": 100,
+      "vendor": 100,
+      "brand_short": 96.7,
+      "color": 91.8,
+      "size": 92.9,
+      "overall": 97.8,
+      "file_orders": 834,
+      "file_complete": 86.5,
+      "file_excluded": 1109
+    }
+  },
+  {
+    "label": "7단계 후",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 100,
+      "name": 100,
+      "phone": 100,
+      "addr1": 100,
+      "addr2": 100,
+      "vendor": 100,
+      "brand_short": 100,
+      "color": 98.8,
+      "size": 98.8,
+      "overall": 99.7,
+      "file_orders": 832,
+      "file_complete": 86.7,
+      "file_excluded": 1111
+    }
+  },
+  {
+    "label": "8단계(최종)",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 100,
+      "name": 100,
+      "phone": 100,
+      "addr1": 100,
+      "addr2": 100,
+      "vendor": 100,
+      "brand_short": 100,
+      "color": 98.8,
+      "size": 98.8,
+      "overall": 99.7,
+      "holdout_split": 96,
+      "holdout_name": 88,
+      "holdout_phone": 96,
+      "holdout_addr1": 92,
+      "holdout_addr2": 72,
+      "holdout_vendor": 96,
+      "holdout_brand_short": 93.3,
+      "holdout_color": 89.7,
+      "holdout_size": 92.9,
+      "holdout_overall": 90.7,
+      "file_orders": 832,
+      "file_complete": 86.7,
+      "file_excluded": 1111
+    }
+  },
+  {
+    "label": "브랜드 사전 72줄",
+    "date": "2026-10-06",
+    "scores": {
+      "split": 100,
+      "name": 100,
+      "phone": 100,
+      "addr1": 100,
+      "addr2": 100,
+      "vendor": 100,
+      "brand_short": 100,
+      "color": 98.8,
+      "size": 98.8,
+      "overall": 99.7,
+      "holdout_split": 96,
+      "holdout_name": 88,
+      "holdout_phone": 96,
+      "holdout_addr1": 92,
+      "holdout_addr2": 72,
+      "holdout_vendor": 96,
+      "holdout_brand_short": 93.3,
+      "holdout_color": 89.7,
+      "holdout_size": 92.9,
+      "holdout_overall": 90.7,
+      "file_orders": 832,
+      "file_complete": 86.7,
+      "file_excluded": 1111
+    }
+  }
+]

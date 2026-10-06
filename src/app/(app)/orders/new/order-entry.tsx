@@ -2,125 +2,146 @@
 
 import { useState } from "react";
 import { suggestShortForm, type DictEntry } from "@/lib/product";
+import { FIELD_LABELS, applyAddressPick, missingFields, parsePaste, type AddressPick, type OrderField } from "@/lib/orders";
 import {
-  FIELD_LABELS, GROUP_SHARED_FIELDS, draftsFromText, emptyOrderDraft, excelProductName, missingFields,
-  type OrderDraft, type OrderField,
-} from "@/lib/orders";
+  cardRows, cardsFromPaste, emptyCard, emptyItem, invoicePreview, mergeCards, splitCard,
+  type CardItem, type ItemField, type OrderCard, type SharedField,
+} from "@/lib/order-cards";
+import type { ExcludedMessage } from "@/lib/kakao";
+import { addressNeedsCheck, nameNeedsCheck, phoneWarning } from "@/lib/parser";
+import AddressSearch from "./address-search";
 import { saveOrders } from "../actions";
 import { createBrand } from "@/app/(app)/brands/actions";
-import { setCurrentUserName, useCurrentUserName } from "@/lib/current-user";
 
-type Card = {
-  key: string;
-  /** ID shared by cards from the same message (orders.order_group_id). Manually added cards get null → a new group on save */
-  groupId: string | null;
-  fields: OrderDraft;
-  /** Raw text this card was split from (for cross-checking) */
-  raw: string;
-  /** If a person edited the short form directly, don't auto-overwrite it when the raw brand text changes */
-  brandShortEdited: boolean;
-  saving: boolean;
-  error: string | null;
-};
+/** Product names from recent orders, offered as autocomplete on the product-name field */
+const RECENT_PRODUCTS_LIST_ID = "recent-product-names";
 
-export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEntry[]; rooms: string[] }) {
+const newKey = () => crypto.randomUUID();
+const cardMissing = (c: OrderCard) => missingFields(c.shared);
+const isReady = (c: OrderCard) => cardMissing(c).length === 0 && c.items.length > 0;
+
+export default function OrderEntry({ dict: initialDict, recentProducts }: { dict: DictEntry[]; recentProducts: string[] }) {
   // Adding to the dictionary directly from a card is reflected in this screen's suggestions immediately
   const [dict, setDict] = useState(initialDict);
-  const [sourceRoom, setSourceRoom] = useState("");
   const [rawText, setRawText] = useState("");
-  const [cards, setCards] = useState<Card[]>([]);
+  const [cards, setCards] = useState<OrderCard[]>([]);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [savingAll, setSavingAll] = useState(false);
-
-  const createdBy = useCurrentUserName();
-
-  const newKey = () => crypto.randomUUID();
+  // Messages from the last paste that were not turned into cards (photos, waybill/exchange/sold-out notices, …)
+  const [excluded, setExcluded] = useState<ExcludedMessage[]>([]);
 
   const handleParse = () => {
-    const drafts = draftsFromText(rawText, dict, { source_room: sourceRoom, created_by: createdBy });
-    if (drafts.length === 0) {
+    const paste = parsePaste(rawText, dict);
+    setExcluded(paste.excluded);
+    const newCards = cardsFromPaste(paste, newKey);
+    if (newCards.length === 0) {
       setMessage({ kind: "error", text: "분리된 주문이 없습니다. 원문을 확인해 주세요." });
       return;
     }
-    const newCards: Card[] = drafts.map((draft) => ({
-      key: newKey(),
-      groupId: draft.groupId,
-      raw: draft.raw,
-      fields: draft.fields,
-      brandShortEdited: false,
-      saving: false,
-      error: null,
-    }));
-    const groupCount = new Set(drafts.map((d) => d.groupId)).size;
+    const multi = newCards.filter((c) => c.items.length > 1).length;
+    const suggested = newCards.filter((c) => c.merge).length;
     setCards((prev) => [...prev, ...newCards]);
     setRawText("");
     setMessage({
       kind: "ok",
-      text: `주문 ${groupCount}건 → 카드 ${drafts.length}장으로 분리했습니다. 카드 내용을 확인한 뒤 저장하세요.`,
+      text:
+        `주문 ${newCards.length}건으로 분리했습니다` +
+        (multi ? ` (그중 ${multi}건은 상품 여러 개 → 합배)` : "") +
+        (suggested ? `. 합배 제안 ${suggested}건을 카드에서 확인하세요` : "") +
+        ". 카드 내용을 확인한 뒤 저장하세요.",
     });
   };
 
-  const addEmptyCard = () =>
-    setCards((prev) => [
-      ...prev,
-      {
-        key: newKey(), groupId: null, raw: "", brandShortEdited: false, saving: false, error: null,
-        fields: emptyOrderDraft(sourceRoom, createdBy),
-      },
-    ]);
+  const patchCard = (key: string, patch: (c: OrderCard) => Partial<OrderCard>) =>
+    setCards((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch(c), error: null } : c)));
 
-  const patchCard = (key: string, patch: Partial<Card>) =>
-    setCards((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  const updateShared = (key: string, field: SharedField, value: string) =>
+    patchCard(key, (c) => ({
+      shared: { ...c.shared, [field]: value },
+      // Once a person edits the vendor, the "새 태그?" hint has been dealt with
+      newTag: field === "vendor" ? false : c.newTag,
+    }));
 
-  const updateField = (key: string, field: OrderField, value: string) =>
-    setCards((prev) => {
-      const target = prev.find((c) => c.key === key);
-      const shared = !!target?.groupId && GROUP_SHARED_FIELDS.includes(field);
-      return prev.map((c) => {
-        // Fields like name/phone/address are also applied to other cards in the same group
-        if (shared && c.key !== key && c.groupId === target.groupId) {
-          return { ...c, fields: { ...c.fields, [field]: value }, error: null };
-        }
-        if (c.key !== key) return c;
-        const fields = { ...c.fields, [field]: value };
-        let brandShortEdited = c.brandShortEdited;
-        if (field === "brand_short") brandShortEdited = true;
-        if (field === "brand_raw" && !c.brandShortEdited) {
-          fields.brand_short = suggestShortForm(value, dict) ?? "";
-        }
-        return { ...c, fields, brandShortEdited, error: null };
+  const updateItem = (key: string, itemKey: string, field: ItemField, value: string) =>
+    patchCard(key, (c) => ({
+      items: c.items.map((it) => {
+        if (it.key !== itemKey) return it;
+        const next: CardItem = { ...it, [field]: value };
+        if (field === "brand_short") next.brandShortEdited = true;
+        if (field === "brand_raw" && !it.brandShortEdited) next.brand_short = suggestShortForm(value, dict) ?? "";
+        return next;
+      }),
+    }));
+
+  const addItem = (key: string) => patchCard(key, (c) => ({ items: [...c.items, emptyItem(newKey)] }));
+  const removeItem = (key: string, itemKey: string) =>
+    patchCard(key, (c) => ({ items: c.items.filter((it) => it.key !== itemKey) }));
+
+  const split = (key: string) =>
+    setCards((prev) => prev.flatMap((c) => (c.key === key ? splitCard(c, newKey) : [c])));
+
+  /** Move the source card's products into the target card (n합배) */
+  const merge = (sourceKey: string, targetKey: string) => {
+    const source = cards.find((c) => c.key === sourceKey);
+    const target = cards.find((c) => c.key === targetKey);
+    if (!source || !target || sourceKey === targetKey) return;
+    const targetName = target.shared.name || "이름 없음";
+    const sameContact =
+      source.shared.name.trim() === target.shared.name.trim() &&
+      source.shared.phone.replace(/\D/g, "") === target.shared.phone.replace(/\D/g, "");
+    if (sameContact) {
+      setMessage({ kind: "ok", text: `'${targetName}' 카드로 합배했습니다.` });
+    } else {
+      setMessage({
+        kind: "error",
+        text: `받는 분 정보가 다른 카드를 합쳤습니다. 이름·전화·주소는 '${targetName}' 카드 기준입니다 — 확인하세요.`,
       });
+    }
+    setCards((prev) => {
+      const src = prev.find((c) => c.key === sourceKey);
+      if (!src) return prev;
+      return prev.filter((c) => c.key !== sourceKey).map((c) => (c.key === targetKey ? mergeCards(c, src) : c));
     });
+  };
 
-  const addToDictionary = async (card: Card) => {
-    const { brand_raw, brand_short } = card.fields;
-    const res = await createBrand({ full_name: brand_raw, short_form: brand_short });
+  const dismissMerge = (key: string) => patchCard(key, () => ({ merge: null }));
+
+  const addEmptyCard = () => setCards((prev) => [...prev, emptyCard(newKey)]);
+  const removeCard = (key: string) => setCards((prev) => prev.filter((c) => c.key !== key));
+
+  // Address-search result → addr1/addr2 (+ postal code for display)
+  const pickAddress = (key: string, pick: AddressPick) =>
+    patchCard(key, (c) => ({ shared: { ...c.shared, ...applyAddressPick(c.shared, pick) }, zonecode: pick.zonecode }));
+
+  const addToDictionary = async (item: CardItem) => {
+    const res = await createBrand({ full_name: item.brand_raw, short_form: item.brand_short });
     if (!res.ok) {
       setMessage({ kind: "error", text: res.error });
       return;
     }
     const nextDict = [...dict, { full_name: res.entry.full_name, short_form: res.entry.short_form }];
     setDict(nextDict);
-    // Also re-suggest a short form, using the updated dictionary, for other cards that had none
+    // Also re-suggest a short form, using the updated dictionary, for other products that had none
     setCards((prev) =>
-      prev.map((c) => {
-        if (c.brandShortEdited || c.fields.brand_short || !c.fields.brand_raw.trim()) return c;
-        const short = suggestShortForm(c.fields.brand_raw, nextDict);
-        return short ? { ...c, fields: { ...c.fields, brand_short: short } } : c;
-      }),
+      prev.map((c) => ({
+        ...c,
+        items: c.items.map((it) => {
+          if (it.brandShortEdited || it.brand_short || !it.brand_raw.trim()) return it;
+          const short = suggestShortForm(it.brand_raw, nextDict);
+          return short ? { ...it, brand_short: short } : it;
+        }),
+      })),
     );
     setMessage({ kind: "ok", text: `딕셔너리에 '${res.entry.full_name}' → '${res.entry.short_form}' 추가했습니다.` });
   };
 
-  const removeCard = (key: string) => setCards((prev) => prev.filter((c) => c.key !== key));
-
-  const saveCards = async (targets: Card[]) => {
+  const saveCards = async (targets: OrderCard[]) => {
     const keys = new Set(targets.map((c) => c.key));
     setCards((prev) => prev.map((c) => (keys.has(c.key) ? { ...c, saving: true, error: null } : c)));
-    const result = await saveOrders(targets.map((c) => ({ ...c.fields, order_group_id: c.groupId })));
+    const result = await saveOrders(targets.flatMap(cardRows));
     if (result.ok) {
       setCards((prev) => prev.filter((c) => !keys.has(c.key)));
-      setMessage({ kind: "ok", text: `${result.ids.length}건 저장했습니다.` });
+      setMessage({ kind: "ok", text: `주문 ${targets.length}건 (상품 ${result.ids.length}개) 저장했습니다.` });
     } else {
       setCards((prev) => prev.map((c) => (keys.has(c.key) ? { ...c, saving: false, error: result.error } : c)));
       setMessage({ kind: "error", text: result.error });
@@ -128,7 +149,7 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
   };
 
   const handleSaveAll = async () => {
-    const ready = cards.filter((c) => missingFields(c.fields).length === 0);
+    const ready = cards.filter(isReady);
     if (ready.length === 0) {
       setMessage({ kind: "error", text: "필수 항목이 모두 채워진 카드가 없습니다." });
       return;
@@ -142,40 +163,16 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
     }
   };
 
-  const readyCount = cards.filter((c) => missingFields(c.fields).length === 0).length;
+  const readyCount = cards.filter(isReady).length;
 
   return (
     <div className="space-y-6">
       <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
-        <div className="flex flex-wrap gap-3">
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">출처 방</span>
-            <input
-              list="room-options"
-              value={sourceRoom}
-              onChange={(e) => setSourceRoom(e.target.value)}
-              placeholder="예: 대구 상인방"
-              className="w-56 rounded border border-gray-300 px-2 py-1.5"
-            />
-            <datalist id="room-options">
-              {rooms.map((r) => <option key={r} value={r} />)}
-            </datalist>
-          </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 font-medium">입력자</span>
-            <input
-              value={createdBy}
-              onChange={(e) => setCurrentUserName(e.target.value)}
-              placeholder="이름"
-              className="w-40 rounded border border-gray-300 px-2 py-1.5"
-            />
-          </label>
-        </div>
         <textarea
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
           rows={10}
-          placeholder="카톡 단톡방에서 복사한 주문 원문을 붙여넣으세요"
+          placeholder="통합 주문방에서 복사한 주문 원문, 또는 '대화 내보내기' .txt 내용을 붙여넣으세요"
           className="w-full rounded border border-gray-300 p-2 font-mono text-sm"
         />
         <div className="flex flex-wrap gap-2">
@@ -190,7 +187,10 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
             빈 카드 추가 (직접 입력)
           </button>
         </div>
-        <p className="text-xs text-gray-500">출처 방·입력자는 분리할 때 새 카드에 채워지고, 카드마다 따로 고칠 수 있습니다.</p>
+        <p className="text-xs text-gray-500">
+          주문 출처는 각 주문 마지막 줄의 태그(예: 디, 장, 굿1)가 거래처 칸에 들어갑니다. 카드 1장 = 송장 1장이고,
+          상품이 여러 개면 n합배로 묶여 송장 한 줄로 나갑니다.
+        </p>
       </section>
 
       {message && (
@@ -201,6 +201,12 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
           {message.text}
         </p>
       )}
+
+      {excluded.length > 0 && <ExcludedList messages={excluded} />}
+
+      <datalist id={RECENT_PRODUCTS_LIST_ID}>
+        {recentProducts.map((p) => <option key={p} value={p} />)}
+      </datalist>
 
       {cards.length > 0 && (
         <section className="space-y-4">
@@ -217,17 +223,24 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
             </button>
           </div>
           {cards.map((card, i) => (
-            <OrderCard
+            <OrderCardView
               key={card.key}
               index={i + 1}
               card={card}
-              groupLabel={groupLabel(cards, card)}
+              others={cards.map((c, j) => ({ card: c, index: j + 1 })).filter((o) => o.card.key !== card.key)}
               dict={dict}
-              onChange={(f, v) => updateField(card.key, f, v)}
+              onShared={(f, v) => updateShared(card.key, f, v)}
+              onItem={(itemKey, f, v) => updateItem(card.key, itemKey, f, v)}
+              onAddItem={() => addItem(card.key)}
+              onRemoveItem={(itemKey) => removeItem(card.key, itemKey)}
+              onSplit={() => split(card.key)}
+              onMergeInto={(targetKey) => merge(card.key, targetKey)}
+              onDismissMerge={() => dismissMerge(card.key)}
               onSave={() => saveCards([card])}
-              onAddBrand={() => addToDictionary(card)}
+              onAddBrand={addToDictionary}
               onRemove={() => removeCard(card.key)}
-              onDismissError={() => patchCard(card.key, { error: null })}
+              onAddressPick={(pick) => pickAddress(card.key, pick)}
+              onDismissError={() => patchCard(card.key, () => ({}))}
             />
           ))}
         </section>
@@ -236,63 +249,81 @@ export default function OrderEntry({ dict: initialDict, rooms }: { dict: DictEnt
   );
 }
 
-/** Shows "group 1/3" when the same group has multiple cards */
-function groupLabel(cards: Card[], card: Card): string | null {
-  if (!card.groupId) return null;
-  const members = cards.filter((c) => c.groupId === card.groupId);
-  return members.length > 1 ? `묶음 ${members.indexOf(card) + 1}/${members.length}` : null;
-}
+const MERGE_REASON: Record<"same-contact" | "hapbae", string> = {
+  "same-contact": "이름·전화·주소·태그가 같은 주문이 있습니다",
+  hapbae: "합배 요청",
+};
 
-function OrderCard({
-  index, card, groupLabel, dict, onChange, onSave, onAddBrand, onRemove, onDismissError,
+function OrderCardView({
+  index, card, others, dict, onShared, onItem, onAddItem, onRemoveItem, onSplit, onMergeInto, onDismissMerge, onSave,
+  onAddBrand, onRemove, onAddressPick, onDismissError,
 }: {
   index: number;
-  card: Card;
-  groupLabel: string | null;
+  card: OrderCard;
+  /** The other cards on screen (merge targets) */
+  others: { card: OrderCard; index: number }[];
   dict: DictEntry[];
-  onChange: (field: OrderField, value: string) => void;
+  onShared: (field: SharedField, value: string) => void;
+  onItem: (itemKey: string, field: ItemField, value: string) => void;
+  onAddItem: () => void;
+  onRemoveItem: (itemKey: string) => void;
+  onSplit: () => void;
+  onMergeInto: (targetKey: string) => void;
+  onDismissMerge: () => void;
   onSave: () => void;
-  onAddBrand: () => Promise<void>;
+  onAddBrand: (item: CardItem) => Promise<void>;
   onRemove: () => void;
+  onAddressPick: (pick: AddressPick) => void;
   onDismissError: () => void;
 }) {
-  const f = card.fields;
-  const missing = new Set(missingFields(f));
-  const brandUnknown = !!f.brand_raw.trim() && !suggestShortForm(f.brand_raw, dict);
-  const [addingBrand, setAddingBrand] = useState(false);
+  const f = card.shared;
+  const missing = new Set<OrderField>(cardMissing(card));
+  const [mergeTarget, setMergeTarget] = useState("");
+  const n = card.items.length;
+  const suggestedTarget = card.merge?.intoGroupId ? others.find((o) => o.card.groupId === card.merge?.intoGroupId) : undefined;
+  const label = (o: { card: OrderCard; index: number }) => `#${o.index} ${o.card.shared.name || "(이름 없음)"}`;
 
-  const input = (field: OrderField, className = "") => (
-    <label className={`flex flex-col text-xs ${className}`}>
+  const input = (field: SharedField) => (
+    <label className="flex flex-col text-xs">
       <span className={`mb-0.5 ${missing.has(field) ? "font-semibold text-red-600" : "text-gray-600"}`}>
         {FIELD_LABELS[field]}
         {missing.has(field) && " · 필수"}
       </span>
       <input
         value={f[field]}
-        onChange={(e) => onChange(field, e.target.value)}
+        onChange={(e) => onShared(field, e.target.value)}
         className={`rounded border px-2 py-1.5 text-sm ${missing.has(field) ? "border-red-400 bg-red-50" : "border-gray-300"}`}
       />
     </label>
   );
 
   return (
-    <article className={`rounded-lg border bg-white p-4 ${missing.size ? "border-red-300" : "border-gray-200"}`}>
-      <header className="mb-3 flex items-center justify-between">
+    <article className={`rounded-lg border bg-white p-4 ${missing.size || n === 0 ? "border-red-300" : "border-gray-200"}`}>
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">
           #{index} {f.name || "(이름 없음)"}
-          {groupLabel && (
+          {n > 1 && (
             <span
-              title="같은 메시지에서 나온 카드입니다. 이름·전화·주소를 고치면 묶음 전체에 반영됩니다."
+              title="상품 여러 개를 송장 1장으로 보냅니다 (엑셀 한 줄)."
               className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700"
             >
-              {groupLabel}
+              {n}합배
             </span>
           )}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {n > 1 && (
+            <button
+              onClick={onSplit}
+              title="상품마다 별도 주문(송장)으로 나눕니다"
+              className="rounded border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50"
+            >
+              분리
+            </button>
+          )}
           <button
             onClick={onSave}
-            disabled={card.saving || missing.size > 0}
+            disabled={card.saving || missing.size > 0 || n === 0}
             className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-40"
           >
             {card.saving ? "저장 중…" : "저장"}
@@ -303,52 +334,126 @@ function OrderCard({
         </div>
       </header>
 
+      {card.merge && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+          <span className="font-semibold">합배 제안</span>
+          <span>
+            {MERGE_REASON[card.merge.reason]}
+            {card.merge.message && <> &lsquo;{card.merge.message}&rsquo;</>}
+          </span>
+          {suggestedTarget ? (
+            <button
+              onClick={() => onMergeInto(suggestedTarget.card.key)}
+              className="rounded bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-700"
+            >
+              {label(suggestedTarget)} 카드와 합치기
+            </button>
+          ) : (
+            <span className="text-indigo-700">합칠 주문을 아래에서 골라 주세요.</span>
+          )}
+          <button onClick={onDismissMerge} className="rounded border border-indigo-300 px-2 py-1 hover:bg-indigo-100">
+            무시
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-[1fr_16rem]">
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2">
             {input("name")}
             {input("phone")}
-            {input("source_room")}
-            {input("created_by")}
           </div>
+          {phoneWarning(f.phone) && <p className="text-xs text-amber-700">⚠ {phoneWarning(f.phone)}</p>}
+          {nameNeedsCheck(f.name) && (
+            <p className="text-xs text-amber-700">
+              <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900">이름 확인</span>
+              &lsquo;{f.name.trim()}&rsquo;은(는) 사람 이름이 아니라 상호·별명일 수 있습니다. 받는 분 이름이 맞는지 확인하세요.
+            </p>
+          )}
           <div className="grid gap-2 sm:grid-cols-2">
             {input("addr1")}
             {input("addr2")}
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {input("brand_raw")}
-            {input("brand_short")}
-            {input("product_name", "sm:col-span-1")}
-            {input("color")}
-            {input("size")}
-          </div>
-          {brandUnknown && (
-            <p className="flex flex-wrap items-center gap-2 text-xs text-amber-700">
-              &lsquo;{f.brand_raw}&rsquo;은(는) 브랜드 딕셔너리에 없습니다.
-              {f.brand_short.trim() ? (
-                <button
-                  onClick={async () => {
-                    setAddingBrand(true);
-                    await onAddBrand();
-                    setAddingBrand(false);
-                  }}
-                  disabled={addingBrand}
-                  className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-40"
-                >
-                  {addingBrand ? "추가 중…" : `딕셔너리에 추가: ${f.brand_raw.trim()} → ${f.brand_short.trim()}`}
-                </button>
-              ) : (
-                <span>약칭을 입력하면 딕셔너리에 바로 추가할 수 있습니다.</span>
-              )}
+          {addressNeedsCheck(f.addr1) && (
+            <p className="text-xs text-amber-700">
+              <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900">주소 확인 필요</span>
+              도로명 번호나 지번을 찾지 못했습니다. 아래 &lsquo;주소 검색&rsquo;으로 확인하세요.
             </p>
           )}
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <AddressSearch query={f.addr1} emphasize={addressNeedsCheck(f.addr1)} onPick={onAddressPick} />
+            </div>
+            {card.zonecode && (
+              <span className="text-xs text-gray-500" title="확인용으로만 표시합니다. 송장 엑셀에는 들어가지 않습니다.">
+                우편번호 {card.zonecode}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-2 rounded border border-gray-200 p-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-gray-700">상품 {n}개</span>
+              {card.itemNumbers.length > 0 && (
+                <span title="사진과 대조하는 용도입니다. 송장 엑셀에는 들어가지 않습니다." className="font-mono text-gray-500">
+                  품번 {card.itemNumbers.join(" · ")}
+                </span>
+              )}
+            </div>
+            {card.items.map((item) => (
+              <ItemRow
+                key={item.key}
+                item={item}
+                dict={dict}
+                canRemove={n > 1}
+                onChange={(field, value) => onItem(item.key, field, value)}
+                onRemove={() => onRemoveItem(item.key)}
+                onAddBrand={() => onAddBrand(item)}
+              />
+            ))}
+            {n === 0 && <p className="text-xs text-red-700">상품이 없습니다. 상품을 추가하세요.</p>}
+            <button onClick={onAddItem} className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">
+              + 상품 추가 (합배)
+            </button>
+          </div>
+
           <div className="grid gap-2 sm:grid-cols-2">
             {input("vendor")}
             {input("note")}
           </div>
+          {card.newTag && f.vendor.trim() && (
+            <p className="text-xs text-amber-700">
+              <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900">새 태그?</span>
+              마지막 줄 &lsquo;{f.vendor.trim()}&rsquo;을(를) 거래처 태그로 넣었습니다. 등록된 태그 목록에 없으니 맞는지 확인하세요.
+            </p>
+          )}
           <p className="text-xs text-gray-600">
-            엑셀 상품명 미리보기: <span className="font-mono text-gray-900">{excelProductName(f) || "—"}</span>
+            엑셀 상품명 미리보기: <span className="font-mono text-gray-900">{invoicePreview(card) || "—"}</span>
           </p>
+          {others.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              <span>다른 카드와 합배:</span>
+              <select
+                value={mergeTarget}
+                onChange={(e) => setMergeTarget(e.target.value)}
+                className="rounded border border-gray-300 px-1 py-0.5"
+              >
+                <option value="">카드 선택</option>
+                {others.map((o) => (
+                  <option key={o.card.key} value={o.card.key}>
+                    {label(o)}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => mergeTarget && onMergeInto(mergeTarget)}
+                disabled={!mergeTarget}
+                className="rounded border border-gray-300 px-2 py-0.5 hover:bg-gray-50 disabled:opacity-40"
+              >
+                이 카드의 상품을 그 카드로 합치기
+              </button>
+            </div>
+          )}
           {card.error && (
             <p className="flex items-start justify-between gap-2 rounded bg-red-50 px-2 py-1 text-xs text-red-800">
               {card.error}
@@ -357,11 +462,134 @@ function OrderCard({
           )}
         </div>
         {card.raw && (
-          <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
             {card.raw}
           </pre>
         )}
       </div>
     </article>
+  );
+}
+
+const ITEM_LABELS: Record<ItemField, string> = {
+  brand_raw: "브랜드 원문",
+  brand_short: "브랜드 약칭",
+  product_name: "상품명",
+  color: "색상",
+  size: "사이즈",
+  note: "상품 메모",
+};
+
+function ItemRow({
+  item, dict, canRemove, onChange, onRemove, onAddBrand,
+}: {
+  item: CardItem;
+  dict: DictEntry[];
+  canRemove: boolean;
+  onChange: (field: ItemField, value: string) => void;
+  onRemove: () => void;
+  onAddBrand: () => Promise<void>;
+}) {
+  const [addingBrand, setAddingBrand] = useState(false);
+  const brandUnknown = !!item.brand_raw.trim() && !suggestShortForm(item.brand_raw, dict);
+  // Only color/size came in the text (the product is in the photo) → ask for the product name
+  const needsProductName = !item.product_name.trim();
+
+  const field = (name: ItemField, warn = false) => (
+    <label className="flex flex-col text-xs">
+      <span className={`mb-0.5 ${warn ? "font-semibold text-amber-700" : "text-gray-600"}`}>
+        {ITEM_LABELS[name]}
+        {warn && " · 입력 필요"}
+      </span>
+      <input
+        value={item[name]}
+        list={name === "product_name" ? RECENT_PRODUCTS_LIST_ID : undefined}
+        onChange={(e) => onChange(name, e.target.value)}
+        className={`rounded border px-2 py-1.5 text-sm ${warn ? "border-amber-400 bg-amber-50" : "border-gray-300"}`}
+      />
+    </label>
+  );
+
+  return (
+    <div className="space-y-1 border-t border-gray-100 pt-2 first:border-t-0 first:pt-0">
+      <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_1fr_1.5fr_1fr_0.7fr_1fr_auto]">
+        {field("brand_raw")}
+        {field("brand_short")}
+        {field("product_name", needsProductName)}
+        {field("color")}
+        {field("size")}
+        {field("note")}
+        <button
+          onClick={onRemove}
+          disabled={!canRemove}
+          title={canRemove ? "이 상품 빼기" : "상품이 하나뿐입니다 (카드를 삭제하세요)"}
+          className="rounded border border-gray-300 px-2 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-30"
+        >
+          빼기
+        </button>
+      </div>
+      {needsProductName && (
+        <p className="text-xs text-amber-700">
+          <span className="mr-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900">상품명 입력 필요</span>
+          사진을 보고 상품명을 입력하세요 (최근 상품명 자동완성).
+        </p>
+      )}
+      {brandUnknown && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-amber-700">
+          &lsquo;{item.brand_raw}&rsquo;은(는) 브랜드 딕셔너리에 없습니다.
+          {item.brand_short.trim() ? (
+            <button
+              onClick={async () => {
+                setAddingBrand(true);
+                await onAddBrand();
+                setAddingBrand(false);
+              }}
+              disabled={addingBrand}
+              className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-40"
+            >
+              {addingBrand ? "추가 중…" : `딕셔너리에 추가: ${item.brand_raw.trim()} → ${item.brand_short.trim()}`}
+            </button>
+          ) : (
+            <span>약칭을 입력하면 딕셔너리에 바로 추가할 수 있습니다.</span>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Folded list of the messages the last paste did not turn into cards, grouped by reason (photos etc. are counted only) */
+function ExcludedList({ messages }: { messages: ExcludedMessage[] }) {
+  const byReason = new Map<string, ExcludedMessage[]>();
+  for (const m of messages) byReason.set(m.reason, [...(byReason.get(m.reason) ?? []), m]);
+  const summary = [...byReason].map(([reason, list]) => `${reason} ${list.length}`).join(" · ");
+
+  return (
+    <details className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
+      <summary className="cursor-pointer text-gray-700">
+        제외된 메시지 <b>{messages.length}</b>개 <span className="text-xs text-gray-500">({summary})</span>
+      </summary>
+      <div className="mt-2 space-y-3">
+        {[...byReason].map(([reason, list]) => (
+          <div key={reason}>
+            <h3 className="mb-1 text-xs font-semibold text-gray-600">
+              {reason} · {list.length}개
+            </h3>
+            {reason === "사진·이모티콘·파일" ? (
+              <p className="text-xs text-gray-500">사진·이모티콘·파일 알림은 개수만 표시합니다.</p>
+            ) : (
+              <ul className="space-y-1">
+                {list.map((m, i) => (
+                  <li key={i} className="rounded bg-gray-50 p-2">
+                    {m.time && <span className="mb-0.5 block text-[11px] text-gray-500">{m.time}{m.sender && ` · ${m.sender}`}</span>}
+                    <pre className="whitespace-pre-wrap text-xs text-gray-800">{m.text}</pre>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

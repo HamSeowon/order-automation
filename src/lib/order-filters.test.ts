@@ -5,10 +5,10 @@ import {
 
 describe("parseFilters", () => {
   it("only accepts valid values, everything else falls back to the default", () => {
+    // The old "room" (source chat) filter was removed — a leftover ?room= in a bookmarked URL is ignored
     expect(parseFilters({ from: "2026-09-01", to: "2026-02-30", room: " 대구방 ", q: ["김", "이"], page: "-3" })).toEqual({
       from: "2026-09-01",
       to: "", // a date that doesn't exist
-      room: "대구방",
       q: "김",
       status: "",
       page: 1,
@@ -20,7 +20,7 @@ describe("parseFilters", () => {
   });
 
   it("filtersToQuery omits empty values and page 1", () => {
-    expect(filtersToQuery({ from: "2026-09-01", room: "대구 방", q: "", page: 1 })).toBe("?from=2026-09-01&room=%EB%8C%80%EA%B5%AC+%EB%B0%A9");
+    expect(filtersToQuery({ from: "2026-09-01", q: "대구 방", page: 1 })).toBe("?from=2026-09-01&q=%EB%8C%80%EA%B5%AC+%EB%B0%A9");
     expect(filtersToQuery({ page: 2 })).toBe("?page=2");
     expect(filtersToQuery({ status: "exported" })).toBe("?status=exported");
     expect(filtersToQuery({})).toBe("");
@@ -60,10 +60,10 @@ describe("search", () => {
     expect(searchOrCondition(" ,() ")).toBeNull();
   });
 
-  it("search term → name/phone/address/product or condition", () => {
+  it("search term → name/phone/address/product/vendor or condition", () => {
     expect(searchOrCondition("01012345678")).toBe(
       "name.ilike.*01012345678*,phone.ilike.*010-1234-5678*,addr1.ilike.*01012345678*,addr2.ilike.*01012345678*," +
-        "product_name.ilike.*01012345678*,brand_raw.ilike.*01012345678*,brand_short.ilike.*01012345678*",
+        "product_name.ilike.*01012345678*,brand_raw.ilike.*01012345678*,brand_short.ilike.*01012345678*,vendor.ilike.*01012345678*",
     );
   });
 });
